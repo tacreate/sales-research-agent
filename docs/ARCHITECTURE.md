@@ -59,86 +59,31 @@ Phase 1着手時にこの設計を出発点として実装・調整する。
 - モデル・具体的なリクエストパラメータはPhase 1で確定する
   （本ドキュメントでは出力契約のみを定義する）
 
-## データ契約（案）
+## データ契約
 
-### LLM出力 JSON Schema（案）
+### LLM出力 JSON Schema
 
-Phase 1で実装時に微調整する前提の設計案。
+正本は独立ファイル [`schema/sales_research_output.schema.json`](../schema/sales_research_output.schema.json)
+（Phase 1で作成）。本ドキュメントでは設計方針のみを記す。
 
-```json
-{
-  "name": "sales_research_output",
-  "strict": true,
-  "schema": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-      "company_profile": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "company_name": { "type": "string" },
-          "official_url": { "type": "string" },
-          "business_overview": { "type": "string" },
-          "recent_news": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "summary": { "type": "string" },
-                "source_url": { "type": "string" }
-              },
-              "required": ["summary", "source_url"]
-            }
-          },
-          "org_signals": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "signal": { "type": "string" },
-                "source_url": { "type": "string" }
-              },
-              "required": ["signal", "source_url"]
-            }
-          }
-        },
-        "required": ["company_name", "official_url", "business_overview", "recent_news", "org_signals"]
-      },
-      "proposal_hypotheses": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "hypothesis": { "type": "string" },
-            "rationale": { "type": "string" },
-            "supporting_source_urls": {
-              "type": "array",
-              "items": { "type": "string" }
-            }
-          },
-          "required": ["hypothesis", "rationale", "supporting_source_urls"]
-        }
-      },
-      "discovery_questions": {
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "caveats": {
-        "type": "array",
-        "items": { "type": "string" }
-      }
-    },
-    "required": ["company_profile", "proposal_hypotheses", "discovery_questions", "caveats"]
-  }
-}
-```
-
-- `source_url` を必須にすることで「出典なし情報」の生成を構造レベルで防ぐ
-- `caveats` は情報が不足・矛盾する場合にLLMが明示するためのフィールド
+- トップレベルに `sources`（出典一覧。各出典は `id`／`url`／`title` を持つ）を持ち、
+  他のフィールドはURLを直接埋め込まず `sources[].id` を参照する
+- **事実**（`company_profile.business_overview`／`recent_news[]`／`org_signals[]`）は
+  出典参照として `source_ids`（`sources[].id`の配列）を必須とする
+- **仮説**（`proposal_hypotheses[]`）は根拠として `evidence_source_ids`
+  （`sources[].id`の配列）を必須とする。空配列（根拠ゼロ件）は業務ルール違反として
+  スキーマ検証とは別の参照整合性チェックで弾く（詳細はPhase 1の`schema/README.md`参照）
+- **商談質問**（`discovery_questions[]`）は出典を持たない、単純な文字列配列とする
+  （質問自体は情報の主張ではないため出典の対象外）
+- 出典が確認できない事実は `company_profile`／`proposal_hypotheses` に含めず、
+  `uncertainties[]`（`note`／`reason`）に分離する
+- OpenAI Responses APIのStructured Output（`strict: true`）との互換性を優先し、
+  スキーマ本体には`minItems`等のstrictモード非対応キーワードを使わない。
+  「仮説の根拠が1件以上必要」という業務ルールはJSON Schemaではなく
+  アプリケーション側の参照整合性チェックで担保する
+- 出典参照（`source_ids`／`evidence_source_ids`）が実在する`sources[].id`を
+  指しているかは、JSON Schemaの検証範囲外のため、Phase 1で作成する
+  カスタムバリデーション（`src/validate.js`想定）で別途検証する
 
 ### 最終出力（承認後）
 

@@ -33,6 +33,13 @@ Phase 1以降で認識齟齬があれば修正する。
    Phase 0で作成した全ファイルを1つのコミットにまとめた。複数コミットへの分割指示は
    なかったため、単一コミットとした。
 
+8. **Git author emailの決定方法（レビュー修正）**
+   `gh api user/emails`によるnoreplyアドレス確認には`user`スコープの追加認可が必要だったが、
+   ユーザーの指示により追加認可は行わず、GitHub公式のID型noreply形式
+   （`{id}+{login}@users.noreply.github.com`）を`gh api user`の公開情報（`id`／`login`）のみで
+   組み立てて採用した。このリポジトリのローカルgit configにのみ設定し、グローバル設定・
+   GitHub側の認証スコープは変更していない。
+
 ## 未解決事項（人間の判断が必要）
 
 - Docker（またはDocker互換ランタイム）が本機に未インストール。Phase 1着手前にインストールが必要。
