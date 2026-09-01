@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SalesResearchOutput",
+  "description": "商談準備AIエージェントのStructured Output契約。事実にはsource_idsを、仮説にはevidence_source_idsを必須とし、出典が確認できない事実は確定情報に含めずuncertaintiesへ分離する。商談質問（discovery_questions）は出典を要求しない。OpenAI Responses APIのStructured Output（strict=true）との互換性を優先し、strictモード非対応のキーワード（minItems等）は使用しない。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "sources": {
+      "type": "array",
+      "description": "調査で収集した出典の一覧。company_profile/proposal_hypothesesはここのidを参照する。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "出典の一意識別子。source_ids/evidence_source_idsから参照される。" },
+          "url": { "type": "string" },
+          "title": { "type": "string" }
+        },
+        "required": ["id", "url", "title"]
+      }
+    },
+    "company_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "company_name": { "type": "string" },
+        "official_url": { "type": "string" },
+        "business_overview": {
+          "type": "object",
+          "description": "事実。source_idsで出典を必須参照する。",
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "string" },
+            "source_ids": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "required": ["text", "source_ids"]
+        },
+        "recent_news": {
+          "type": "array",
+          "description": "事実の配列。各要素にsource_idsを必須とする。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "summary": { "type": "string" },
+              "source_ids": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "required": ["summary", "source_ids"]
+          }
+        },
+        "org_signals": {
+          "type": "array",
+          "description": "事実の配列。各要素にsource_idsを必須とする。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "signal": { "type": "string" },
+              "source_ids": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "required": ["signal", "source_ids"]
+          }
+        }
+      },
+      "required": ["company_name", "official_url", "business_overview", "recent_news", "org_signals"]
+    },
+    "proposal_hypotheses": {
+      "type": "array",
+      "description": "仮説の配列。各要素にevidence_source_idsを必須とする。根拠1件以上の要求はJSON Schemaではなくアプリ側の参照整合性チェックで担保する（src/validate.js）。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "hypothesis": { "type": "string" },
+          "rationale": { "type": "string" },
+          "evidence_source_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["hypothesis", "rationale", "evidence_source_ids"]
+      }
+    },
+    "discovery_questions": {
+      "type": "array",
+      "description": "商談質問。出典は不要。",
+      "items": { "type": "string" }
+    },
+    "uncertainties": {
+      "type": "array",
+      "description": "出典が確認できなかった事項。company_profile/proposal_hypothesesには含めずここに分離する。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "required": ["note", "reason"]
+      }
+    }
+  },
+  "required": ["sources", "company_profile", "proposal_hypotheses", "discovery_questions", "uncertainties"]
+}
