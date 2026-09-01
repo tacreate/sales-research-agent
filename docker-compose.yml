@@ -1,0 +1,25 @@
+services:
+  n8n:
+    # 現在の安定版に固定（latestは使用しない）。amd64/arm64（Apple silicon含む）両対応を確認済み。
+    # 確認日: 2026-09-01, 確認方法: docs/DOCKER.mdを参照
+    image: n8nio/n8n:2.36.9
+    container_name: sales-research-agent-n8n
+    restart: unless-stopped
+    ports:
+      # localhostのみに公開し、外部（LAN等）からはアクセスできないようにする
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - TZ=Asia/Tokyo
+      - GENERIC_TIMEZONE=Asia/Tokyo
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+    env_file:
+      # 秘密値（N8N_ENCRYPTION_KEY、APIキー等）はここ経由でのみ渡す
+      - .env
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:

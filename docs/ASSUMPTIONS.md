@@ -51,10 +51,20 @@ Phase 1以降で認識齟齬があれば修正する。
     将来そのままAPIリクエストへ流用できるよう、スキーマ本体には`minItems`を使わず、
     参照整合性チェックと合わせてアプリケーション側（`src/validate.js`）で検証することにした。
 
+11. **n8nイメージバージョンの選定方法（Phase 2）**
+    Docker Hub APIで`latest`タグのマニフェストダイジェストを取得し、同一ダイジェストを持つ
+    具体的なバージョンタグ（`2.36.9`）を特定して採用した。ダイジェスト一致により
+    「`latest`が指している実体」を推測ではなく確認した上で固定した。
+
+12. **非秘密の環境変数の配置場所（Phase 2）**
+    `N8N_HOST`／`N8N_PORT`／`N8N_PROTOCOL`／`TZ`／`GENERIC_TIMEZONE`／
+    `N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS`は秘密情報ではないため、`.env`ではなく
+    `docker-compose.yml`に直接記述した。`.env`（および`.env.example`）は秘密値・
+    利用者固有の値（`N8N_ENCRYPTION_KEY`、APIキー）のみを扱う方針とした。
+
 ## 未解決事項（人間の判断が必要）
 
-- Docker（またはDocker互換ランタイム）が本機に未インストール。Phase 1着手前にインストールが必要。
-- OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 1で決定）。
+- OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 4で決定）。
 - Tavily API・OpenAI APIの利用契約・料金プランの確認は未実施（ユーザー側で確認が必要）。
-- GitHubリポジトリの公開/非公開設定、リポジトリ名、Organization/個人アカウントどちらに
-  作成するかは未確定（Phase 4着手前にユーザーの意思決定が必要）。
+- n8n初回セットアップ（オーナーアカウント作成）はブラウザでの人間の操作が必要
+  （`http://localhost:5678`にアクセスして行う）。

@@ -13,10 +13,19 @@
 `/Applications`にDocker Desktopアプリも存在せず、`colima`／`podman`等の代替ランタイムも
 見つからなかった。
 
-## Phase 1着手前に必要な人間の作業
+## 環境確認結果（Phase 2、更新）
 
-- Docker Desktop（またはColima等のDocker互換ランタイム）のインストール
-- インストール後、`docker --version`／`docker compose version`で動作確認
+確認日：2026-09-01（ユーザーによるDocker Desktopインストール後）
+
+| ツール | 結果 | バージョン |
+|---|---|---|
+| Docker | インストール済み | 29.7.2 |
+| Docker Compose | インストール済み | v5.4.0 |
+| Docker daemon | 接続確認済み（`docker info`成功） | - |
+| CPUアーキテクチャ | 確認済み | arm64（Apple silicon） |
+
+n8n公式イメージ（`n8nio/n8n:2.36.9`）がarm64/amd64両対応であることをDocker Hub APIで
+確認済み（詳細は[docs/DOCKER.md](DOCKER.md)）。
 
 ## GitHub CLI認証状態
 

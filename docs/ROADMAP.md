@@ -11,7 +11,7 @@
 - GitHubリポジトリ作成・push・PR・Issue登録は本フェーズでは行わない
   （Phase 1から開始）
 
-## Phase 1 — Structured Output契約の確立（GitHub運用開始）
+## Phase 1 — Structured Output契約の確立（GitHub運用開始・完了）
 
 - 固定サンプル（fixture）を用いたJSON Schema契約の確立
   - n8n／Docker／OpenAI／Tavilyへの実通信は行わない
@@ -23,15 +23,18 @@
 - GitHub CLI認証確認 → 個人アカウントに公開リポジトリ作成 → Phase 0をpush
 - Phase 1用Issue作成、featureブランチで実装、テスト成功後にPR作成（マージはしない）
 
-## Phase 2 — ローカル実行環境構築
+## Phase 2 — n8nローカル実行環境（Docker）
 
-- Docker（Docker Desktop等）のインストール（人間の作業）
-- `docker-compose.yml`作成、n8nのローカル起動確認
-- n8n上でForm Trigger〜Tavily〜OpenAI〜Wait〜出力までのノードをスケルトンとして配置
-  （実データでの動作確認は次フェーズ以降）
-- n8n Credentialsの設定手順を文書化
+- Docker Desktopのインストール（人間の作業、完了）
+- n8n公式イメージの安定版（`n8nio/n8n:2.36.9`）への固定、Apple silicon対応確認
+- `docker-compose.yml`作成、n8nのローカル起動確認（`localhost:5678`のみ、named volumeで永続化）
+- `N8N_ENCRYPTION_KEY`等の秘密値の安全な取り扱い方針の実装
+- n8n Credentialsの設定手順の文書化はPhase 3以降（実際にCredentialsを使うタイミング）で行う
 
 ## Phase 3 — 調査ロジックの実装
+
+- n8n上でForm Trigger〜Tavily〜OpenAI〜Wait〜出力までのノードをスケルトンとして配置
+  （実データでの動作確認は本フェーズ以降）
 
 - Tavily Search／Extractの実クエリ設計・パラメータ確定・実装
 - 検索・抽出結果から`sources`（出典一覧）を構築するロジックの実装

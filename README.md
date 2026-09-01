@@ -6,9 +6,9 @@ BtoB営業担当者が「企業名・公式URL・自社サービス」を入力�
 
 ## ステータス
 
-現在 **Phase 1（Structured Output契約の確立）** に着手中。
-n8n／Docker／OpenAI／Tavilyへの実通信はまだ行っておらず、固定サンプル（fixture）による
-JSON Schema契約の検証のみを行っている。n8nワークフロー本体はまだ実装していない。
+現在 **Phase 2（n8nローカル実行環境）** に着手中。Phase 1（Structured Output契約）は完了。
+n8nはDocker Composeでローカル起動できるようになったが、OpenAI／Tavilyへの実通信、
+n8nワークフロー本体の実装はまだ行っていない。
 
 ## スコープ（MVP）
 
@@ -25,11 +25,10 @@ JSON Schema契約の検証のみを行っている。n8nワークフロー本体
 
 | ツール | 用途 | 状態（確認日: 2026-09-01） |
 |---|---|---|
-| Docker / Docker Compose | n8nのローカル実行 | 未インストール（本機に無し） |
+| Docker / Docker Compose | n8nのローカル実行 | あり（Docker Desktop、Apple silicon対応） |
 | Git | バージョン管理 | あり（2.50.1） |
 | GitHub CLI (gh) | リポジトリ・Issue・PR操作 | あり（2.97.0） |
 
-Docker未インストールのため、Phase 0時点ではn8nコンテナは起動していない。
 詳細は [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) を参照。
 
 ## ドキュメント
@@ -38,6 +37,7 @@ Docker未インストールのため、Phase 0時点ではn8nコンテナは起�
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — ワークフロー設計・データ契約
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 開発フェーズ計画（Phase 0〜6）
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — 環境確認結果
+- [docs/DOCKER.md](docs/DOCKER.md) — n8nイメージバージョン選定・Apple silicon対応確認・構成方針
 - [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) — 各フェーズで行った仮定の記録
 
 ## Structured Output契約の検証（Phase 1）
@@ -64,15 +64,58 @@ npm test
 `.github/workflows/test.yml`により、push・PR作成時にGitHub Actions上で
 Node.js（`lts/*`）で`npm ci` → `npm test`を自動実行する。外部API・n8n・Dockerは使用しない。
 
-## セットアップ（Phase 2以降で使用予定）
+## n8nローカル実行環境（Phase 2）
+
+n8nはDocker Composeでローカル起動する。バージョン選定・Apple silicon対応の確認結果は
+[docs/DOCKER.md](docs/DOCKER.md)を参照。`localhost:5678`のみで利用し、外部には公開しない。
+
+### 初回セットアップ
 
 ```bash
 cp .env.example .env
-# .env にAPIキー等の実値を設定する（コミット禁止）
+```
+
+`.env`の`N8N_ENCRYPTION_KEY`に、以下で生成した値を設定する（表示・共有・コミットしないこと）。
+
+```bash
+openssl rand -hex 32
+```
+
+OpenAI／Tavilyの`OPENAI_API_KEY`／`TAVILY_API_KEY`はPhase 2時点ではまだ設定不要（空のままでよい）。
+
+`.env` はGit管理対象外（`.gitignore`参照）。実際の値は絶対にコミットしない。
+
+### 起動
+
+```bash
 docker compose up -d
 ```
 
-`.env` はGit管理対象外（`.gitignore`参照）。実際のAPIキーは絶対にコミットしない。
+起動後、ブラウザで [http://localhost:5678](http://localhost:5678) を開き、
+n8nの初回セットアップ（オーナーアカウント作成）を行う（ユーザー自身の操作）。
+
+### 停止
+
+```bash
+docker compose down
+```
+
+（`-v`オプションは付けない。付けるとnamed volumeごとデータが削除される）
+
+### ログ確認
+
+```bash
+docker compose logs -f n8n
+```
+
+### 再起動
+
+```bash
+docker compose restart
+```
+
+named volume（`n8n_data`）にデータが永続化されているため、再起動してもn8n上で作成した
+設定・ワークフローは失われない。
 
 ## ディレクトリ構成
 
@@ -80,6 +123,7 @@ docker compose up -d
 sales-research-agent/
 ├── README.md
 ├── package.json
+├── docker-compose.yml
 ├── .env.example
 ├── .gitignore
 ├── schema/
@@ -101,6 +145,7 @@ sales-research-agent/
 │   ├── ARCHITECTURE.md
 │   ├── ROADMAP.md
 │   ├── ENVIRONMENT.md
+│   ├── DOCKER.md
 │   └── ASSUMPTIONS.md
 └── .github/
     ├── workflows/
@@ -111,4 +156,4 @@ sales-research-agent/
     └── pull_request_template.md
 ```
 
-（`docker-compose.yml`、`workflows/`等はPhase 2以降で追加予定。）
+（n8nワークフロー定義（`workflows/`等）はPhase 3以降で追加予定。）
