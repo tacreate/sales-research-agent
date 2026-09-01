@@ -62,9 +62,12 @@ npm test
 - fixture 7種（正常系1・異常系6）で上記を検証（`fixtures/`）
 
 `src/normalize.js`（Phase 3、Tavily結果の正規化・重複排除・構造化）は
-`fixtures/tavily/`の固定fixture（正常系・検索結果0件・検索失敗・Extract失敗等）で検証する。
-n8nワークフロー内のCodeノードは同一ロジックを手動で複製しているため
-（n8n Codeノードは外部モジュールをimportできないため）、変更時は両方を同期させる。
+`fixtures/tavily/`の固定fixture（正常系・検索結果0件・検索失敗・Extract失敗等、
+Search/Extractの主要な組み合わせを網羅）で検証する。n8nワークフロー内のCodeノードは
+同一ロジックを手動で複製しているため（n8n Codeノードは外部モジュールをimportできないため）、
+`test/workflow-sync.test.js`でworkflow側のロジックを実際に実行し、
+`src/normalize.js`と同じfixtureに対して同じ出力になることを自動検証する
+（手動同期の漏れを検出する）。
 
 ## CI
 
@@ -74,7 +77,7 @@ Node.js（`lts/*`）で`npm ci` → `npm test`を自動実行する。外部API�
 ## n8nワークフロー：Tavily情報取得（Phase 3）
 
 `workflows/phase3-tavily-research.json`に、Manual Trigger〜Tavily Search／Extract〜
-正規化・構造化までのPhase 3部分を実装している。OpenAI連携・Form Trigger・
+Merge〜正規化・構造化までのPhase 3部分を実装している。OpenAI連携・Form Trigger・
 Human-in-the-loop・レポート生成はまだ含まれていない。
 
 ### workflowのインポート
@@ -82,15 +85,16 @@ Human-in-the-loop・レポート生成はまだ含まれていない。
 n8n画面（[http://localhost:5678](http://localhost:5678)）の「Import from File」から
 `workflows/phase3-tavily-research.json`を読み込む。認証情報は未設定の状態でインポートされる。
 
-### Tavily API認証情報の割り当て（ユーザー操作）
+### 既存のTavily API認証情報の割り当て（ユーザー操作）
 
-1. n8n画面で、Tavily APIキー（[https://app.tavily.com](https://app.tavily.com)等で取得したもの）を
-   用意する
-2. 「Tavily Search」「Tavily Extract」いずれかのノードを開き、
-   「Credential for Bearer Auth」欄で新規作成を選び、Credential種別「HTTP Bearer Auth」、
-   名前を**「Tavily API」**として、Tokenにキー（`tvly-...`）を入力して保存する
-3. もう一方のノードにも同じ「Tavily API」Credentialを割り当てる
-4. 「Test workflow」で実行する（初回実行でTavily APIのクレジットが消費される点に注意）
+Tavily APIキー用のCredential「Tavily API」（Header Auth、Header Name: `Authorization`、
+Value: `Bearer <Tavilyキー>`、許可ドメイン: `api.tavily.com`）は**作成済み**の前提。
+新規作成やAPIキーの再取得は不要。
+
+1. 「Tavily Search」ノードを開き、「Credential for Header Auth」欄で
+   既存の**「Tavily API」**を選択する
+2. 「Tavily Extract」ノードでも同様に、既存の**「Tavily API」**を選択する
+3. 「Test workflow」で実行する（初回実行でTavily APIのクレジットが消費される点に注意）
 
 APIキー自体はn8nのCredentialとして暗号化保存されるのみで、リポジトリには一切含まれない。
 
@@ -200,7 +204,8 @@ sales-research-agent/
 │   └── normalize.js
 ├── test/
 │   ├── validate.test.js
-│   └── normalize.test.js
+│   ├── normalize.test.js
+│   └── workflow-sync.test.js
 ├── docs/
 │   ├── REQUIREMENTS.md
 │   ├── ARCHITECTURE.md

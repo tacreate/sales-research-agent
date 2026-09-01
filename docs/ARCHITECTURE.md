@@ -9,11 +9,12 @@ Phase 1着手時にこの設計を出発点として実装・調整する。
 [Form Trigger]
       │  企業名 / 公式URL / 自社サービス概要
       ▼
-[Tavily Search]  ── 企業名・公式ドメインを軸にニュース・IR等を検索
-      ▼
-[Tavily Extract] ── 公式サイト＋検索結果上位URLの本文を取得
-      ▼
-[Aggregate/Set]  ── 検索・抽出結果を1つのコンテキストにまとめる
+[Tavily Search]      [Tavily Extract]  ── Phase 3で実装済み（並列実行、詳細は下記）
+      └────────┬────────┘
+               ▼
+            [Merge]  ── 両分岐の完了を待ち合わせる（Phase 3で実装済み）
+               ▼
+[Normalize, Dedupe & Structure Output]  ── 検索・抽出結果を構造化JSONにまとめる
       ▼
 [HTTP Request: OpenAI Responses API]
       │  Structured Output (JSON Schema, strict=true)
@@ -50,6 +51,16 @@ Phase 1着手時にこの設計を出発点として実装・調整する。
   （docs/ASSUMPTIONS.md参照）
 - 目的：公式サイト本文を取得し、要約・引用の元データとする
 - 抽出結果に元URLを保持し、出典として引き継ぐ
+
+### 3.5 Merge（Phase 3で実装済み）
+
+- Tavily Search（入力0）とTavily Extract（入力1）を`mode: combine`
+  （`combineBy: combineByPosition`）で受け、両方の完了を待ち合わせる
+- n8n 2.36.9では、並列分岐を同一ノードの同一入力へ直接接続すると、
+  両分岐の完了を待たずに後続ノードが実行され得ることを実機検証で確認したため、
+  明示的な同期点として追加した（詳細はdocs/TAVILY.md、docs/ASSUMPTIONS.md）
+- Merge自体の出力内容（フィールド統合結果）は使用せず、後続のCodeノードは
+  `$('Tavily Search')`／`$('Tavily Extract')`で個別に参照する
 
 ### 4. Normalize, Dedupe & Structure Output（Phase 3で実装済み、旧称Aggregate/Set）
 

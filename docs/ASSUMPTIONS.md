@@ -62,12 +62,15 @@ Phase 1以降で認識齟齬があれば修正する。
     `docker-compose.yml`に直接記述した。`.env`（および`.env.example`）は秘密値・
     利用者固有の値（`N8N_ENCRYPTION_KEY`、APIキー）のみを扱う方針とした。
 
-13. **認証情報の種類（Phase 3）**
+13. **認証情報の種類（Phase 3、PRレビューで訂正）**
     n8nにTavily専用の組み込みCredential型が存在しないことを、インストール済みn8nの
     node_modules内を検索して確認した（`n8n-nodes-base`／`@n8n`配下に`tavily`関連の
-    Credential定義なし）。そのため、HTTP RequestノードのGeneric Credential Type
-    「HTTP Bearer Auth」を用い、ユーザーがn8n画面でCredential名を
-    「Tavily API」として作成する前提で設計した。
+    Credential定義なし）。当初はGeneric Credential Type「HTTP Bearer Auth」を前提に
+    設計したが、PRレビューでユーザーが実際にn8n画面へ作成済みのCredentialは
+    「HTTP Header Auth」（Header Name: `Authorization`、Value: `Bearer <キー>`、
+    許可ドメイン: `api.tavily.com`）であることが判明したため、workflow・README・
+    docs/TAVILY.mdをすべて「HTTP Header Auth」前提へ訂正した
+    （`genericAuthType: httpHeaderAuth`）。ユーザーはCredentialを再作成する必要はない。
 
 14. **Extractの対象をpublic URLのみに縮小した理由（Phase 3）**
     Phase 1時点の設計案では検索結果上位N件もExtract対象としていたが、要件2
@@ -84,9 +87,32 @@ Phase 1以降で認識齟齬があれば修正する。
 16. **workflow検証方法（Phase 3）**
     実際のn8n画面へのログイン（オーナーパスワード入力）は行わず、n8n CLI
     （`import:workflow`／`export:workflow`）とNode.jsの構文チェック（`node --check`）で
-    workflow JSONの妥当性を検証した。CLIの`execute`コマンドは実行中サーバーと
-    ポート競合するため使用せず、実際のワークフロー実行確認はユーザーが
-    n8n画面でTavily API Credentialを割り当てた後に行う。
+    workflow JSONの妥当性を検証した。実行中の本番コンテナに対する`execute`コマンドは
+    ポート競合するため使用せず、並列分岐の実行順序検証（下記17）や実際のワークフロー
+    実行確認は、実行中インスタンスとは別の使い捨てコンテナ、またはユーザーが
+    n8n画面でTavily API Credentialを割り当てた後に行った／行う。
+
+17. **並列分岐の実行順序とMergeノードの追加（Phase 3、PRレビューで発見・修正）**
+    Fixed Test Input → Tavily Search／Tavily Extract → 同一の後続ノード、という
+    構成について、n8n 2.36.9の実際の挙動を使い捨てコンテナで検証したところ、
+    両方の分岐の完了を待たずに後続ノードが実行され、`$('未実行のノード名')`参照で
+    `ExpressionError`となることを確認した。そのため、Search/Extractの出力を
+    Mergeノード（`mode: combine`、`combineBy: combineByPosition`、入力0/1に
+    それぞれ接続）で同期させてから後続のCodeノードへ渡す構成に修正した
+    （詳細はdocs/TAVILY.md「Search/Extractの並列実行とMergeノード」）。
+
+18. **Code同期チェックの実装方式（Phase 3、PRレビューで追加）**
+    「過剰実装にならない範囲」でCodeノードと`src/normalize.js`の同期漏れを検出する
+    手段として、ビルドスクリプトによる自動生成（ソース一本化）ではなく、
+    `test/workflow-sync.test.js`でworkflow内のjsCodeをNode.jsの`vm`モジュールで
+    実行し、`src/normalize.js`の関数と同一fixtureに対する出力を比較するテストを
+    追加した。テキスト差分比較ではなく実行結果比較にしたのは、コメント等の
+    些細な違いを誤検知せず振る舞いの一致だけを見るため。ビルドスクリプトは
+    プロセスの複雑化（生成物の管理、生成タイミングのずれ等）を避けるため
+    見送った。なお、vmの別レルムオブジェクトを`assert.deepEqual`
+  （`node:assert/strict`は`deepStrictEqual`相当）で直接比較するとプロトタイプの
+    違いで誤って不一致判定されるため、比較前にJSON往復でプレーンオブジェクト化する
+    実装上の注意点がある（テスト内にコメントで明記）。
 
 ## 未解決事項（人間の判断が必要）
 
@@ -94,7 +120,9 @@ Phase 1以降で認識齟齬があれば修正する。
 - Tavily API・OpenAI APIの利用契約・料金プランの確認は未実施（ユーザー側で確認が必要）。
 - n8n初回セットアップ（オーナーアカウント作成）はブラウザでの人間の操作が必要
   （`http://localhost:5678`にアクセスして行う、Phase 2で完了済み）。
-- n8n画面での「Tavily API」Credential作成・ノードへの割り当てはユーザー操作が必要
-  （Phase 3、本PRのマージ後）。
-- workflow内のCodeノードと`src/normalize.js`のロジック同期は手動運用のため、
-  将来の変更時にレビューで両者の一致を確認する必要がある。
+- n8n画面での既存「Tavily API」Credential（Header Auth）のSearch/Extract両ノードへの
+  割り当てはユーザー操作が必要（Phase 3、本PRのマージ後）。
+- workflow内のCodeノードと`src/normalize.js`は手動でコードを複製する運用のため、
+  変更時に一方だけ修正して`npm test`（`test/workflow-sync.test.js`）を実行し忘れると
+  ズレたままコミットされ得る。同期漏れ自体は`npm test`で検出できるが、
+  「テストを実行してからコミットする」運用自体は引き続き人間の注意に依存する。

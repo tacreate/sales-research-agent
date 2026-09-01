@@ -6,12 +6,14 @@
 
 ## 認証
 
-- 方式：HTTP Bearer認証
-- ヘッダー：`Authorization: Bearer tvly-YOUR_API_KEY`
-- n8n上では、HTTP Requestノードの認証方式を「Generic Credential Type」→
-  「HTTP Bearer Auth」とし、**「Tavily API」という名前のCredentialをユーザー自身が
-  n8n画面で作成・割り当てる**。ワークフローJSONにはCredentialのid・値を含めない
-  （Credentials未選択でもimport可能な状態にする）。
+- Tavily APIとしてはHTTP Bearer認証（`Authorization: Bearer tvly-YOUR_API_KEY`）を採用しているが、
+  n8n上ではこれを**Generic Credential Type「HTTP Header Auth」**として設定する
+  （n8nの「HTTP Bearer Auth」種別は使わない）。
+- ユーザーが既にn8n画面で作成済みの「Tavily API」Credential（Header Auth、
+  Header Name: `Authorization`、Value: `Bearer <Tavilyキー>`、許可ドメイン:
+  `api.tavily.com`）を、Search／Extract両方のHTTP Requestノードにそのまま割り当てる。
+  **新規のCredential作成・APIキーの再取得は不要**
+- ワークフローJSONにはCredentialのid・値を含めない（Credentials未選択でもimport可能な状態にする）
 
 ## Tavily Search API
 
@@ -79,6 +81,29 @@ n8nのHTTP Requestノードは`onError: continueRegularOutput`を設定し、API
 
 いずれの場合も、失敗・空の箇所を架空の情報で補完せず、`status`フィールドで
 明示的に「取得できなかったこと」を表現する。
+
+## Search/Extractの並列実行とMergeノード（PRレビューで確認）
+
+Fixed Test Input → Tavily Search／Tavily Extract → 後続ノード、という並列分岐構成において、
+n8n 2.36.9で実際にどう実行されるかを、実行中の本番コンテナとは別の使い捨てコンテナ
+（`n8nio/n8n:2.36.9`、ボリューム無し）で検証した。
+
+- **検証1（Mergeノード無し）**：2つのSetノードの出力を同じCodeノードの同じ入力
+  （index 0）へ直接接続して`n8n execute`で実行したところ、
+  `ExpressionError: Node 'Set B' hasn't been executed`で失敗した。
+  すなわち、**両方の分岐の完了を待たずに後続ノードが実行され得る**ことを確認した
+  （片方の分岐が先に完了した時点で後続ノードが起動してしまう）。
+- **検証2（Mergeノードあり）**：同じ2ノードをMergeノード（`mode: combine`、
+  `combineBy: combineByPosition`）の入力0・入力1にそれぞれ接続し、Mergeの出力を
+  Codeノードへ接続したところ、両方のSetノードの完了を待ってからCodeノードが実行され、
+  `$('Set A')`／`$('Set B')`とも正しく解決されることを確認した。
+
+この結果を踏まえ、`workflows/phase3-tavily-research.json`では
+**Tavily Search → Merge(入力0)、Tavily Extract → Merge(入力1)、Merge → Normalize,
+Dedupe & Structure Output** という構成にした。Mergeノード自身の出力内容
+（フィールドの統合結果）は使用せず、後続のCodeノードは従来どおり
+`$('Tavily Search')`／`$('Tavily Extract')`で個別に参照する
+（Mergeは「両方の完了を待つ」ための同期点としてのみ機能させる）。
 
 ## Phase 3のスコープ外（既存設計からの縮小）
 
