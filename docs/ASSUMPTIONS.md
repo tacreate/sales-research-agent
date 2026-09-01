@@ -40,6 +40,17 @@ Phase 1以降で認識齟齬があれば修正する。
    組み立てて採用した。このリポジトリのローカルgit configにのみ設定し、グローバル設定・
    GitHub側の認証スコープは変更していない。
 
+9. **検証用ライブラリの選定（Phase 1）**
+   JSON Schema検証には`ajv`を採用した（Node.js標準にJSON Schemaバリデータが無いため）。
+   テストランナーは追加依存を避けるためNode.js標準の`node:test`を使用し、
+   Mocha/Jest等の外部テストフレームワークは導入していない。
+
+10. **業務ルール検証をJSON Schemaの外に置いた理由（Phase 1）**
+    「仮説の根拠が1件以上必要」という制約は`minItems`で表現可能だが、OpenAI Responses APIの
+    Structured Output（`strict: true`）はstrictモードで使用できるキーワードに制限があるため、
+    将来そのままAPIリクエストへ流用できるよう、スキーマ本体には`minItems`を使わず、
+    参照整合性チェックと合わせてアプリケーション側（`src/validate.js`）で検証することにした。
+
 ## 未解決事項（人間の判断が必要）
 
 - Docker（またはDocker互換ランタイム）が本機に未インストール。Phase 1着手前にインストールが必要。

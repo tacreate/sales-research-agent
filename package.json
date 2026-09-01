@@ -1,0 +1,13 @@
+{
+  "name": "sales-research-agent-schema-validation",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Phase 1: Structured Output契約（JSON Schema）とfixtureに基づく検証・テスト環境",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  }
+}

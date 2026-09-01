@@ -6,8 +6,9 @@ BtoB営業担当者が「企業名・公式URL・自社サービス」を入力�
 
 ## ステータス
 
-現在 **Phase 0（プロジェクト初期化・環境確認・設計文書化のみ）** が完了。
-n8nワークフロー本体はまだ実装していない。
+現在 **Phase 1（Structured Output契約の確立）** に着手中。
+n8n／Docker／OpenAI／Tavilyへの実通信はまだ行っておらず、固定サンプル（fixture）による
+JSON Schema契約の検証のみを行っている。n8nワークフロー本体はまだ実装していない。
 
 ## スコープ（MVP）
 
@@ -34,12 +35,36 @@ Docker未インストールのため、Phase 0時点ではn8nコンテナは起�
 ## ドキュメント
 
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — MVP要件・受入条件
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — ワークフロー設計・データ契約（JSON Schema案）
-- [docs/ROADMAP.md](docs/ROADMAP.md) — 開発フェーズ計画
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — ワークフロー設計・データ契約
+- [docs/ROADMAP.md](docs/ROADMAP.md) — 開発フェーズ計画（Phase 0〜6）
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — 環境確認結果
-- [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) — Phase 0で行った仮定の記録
+- [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) — 各フェーズで行った仮定の記録
 
-## セットアップ（Phase 1以降で使用予定）
+## Structured Output契約の検証（Phase 1）
+
+`schema/sales_research_output.schema.json` がLLM出力のJSON Schema契約。
+固定サンプル（`fixtures/`）を使い、Node.jsでスキーマ検証と出典参照の整合性検証を行う。
+外部API・n8n・Dockerへの実通信は行わない。
+
+```bash
+npm install
+npm test
+```
+
+- スキーマ検証：[ajv](https://ajv.js.org/)によるJSON Schema準拠チェック
+  （未定義フィールドは`additionalProperties: false`で拒否）
+- 業務ルール検証（`src/validate.js`、JSON Schemaでは表現できない事項）：
+  - `sources[].id`の重複拒否
+  - `source_ids`／`evidence_source_ids`が実在する`sources[].id`を参照しているか
+  - 仮説の根拠（`evidence_source_ids`）が1件以上あるか（空配列を拒否）
+- fixture 7種（正常系1・異常系6）で上記を検証（`fixtures/`）
+
+## CI
+
+`.github/workflows/test.yml`により、push・PR作成時にGitHub Actions上で
+Node.js（`lts/*`）で`npm ci` → `npm test`を自動実行する。外部API・n8n・Dockerは使用しない。
+
+## セットアップ（Phase 2以降で使用予定）
 
 ```bash
 cp .env.example .env
@@ -54,8 +79,23 @@ docker compose up -d
 ```
 sales-research-agent/
 ├── README.md
+├── package.json
 ├── .env.example
 ├── .gitignore
+├── schema/
+│   └── sales_research_output.schema.json
+├── fixtures/
+│   ├── valid.json
+│   ├── missing_required_field.json
+│   ├── invalid_source_reference.json
+│   ├── hypothesis_missing_evidence.json
+│   ├── duplicate_source_ids.json
+│   ├── unknown_field.json
+│   └── invalid_evidence_reference.json
+├── src/
+│   └── validate.js
+├── test/
+│   └── validate.test.js
 ├── docs/
 │   ├── REQUIREMENTS.md
 │   ├── ARCHITECTURE.md
@@ -63,10 +103,12 @@ sales-research-agent/
 │   ├── ENVIRONMENT.md
 │   └── ASSUMPTIONS.md
 └── .github/
+    ├── workflows/
+    │   └── test.yml
     ├── ISSUE_TEMPLATE/
     │   ├── bug_report.md
     │   └── feature_request.md
     └── pull_request_template.md
 ```
 
-（`docker-compose.yml`、`workflows/`等はPhase 1で追加予定。Phase 0ではまだ作成していない。）
+（`docker-compose.yml`、`workflows/`等はPhase 2以降で追加予定。）
