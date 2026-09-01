@@ -50,12 +50,21 @@ function collectSourceIdRefs(data) {
 
 /**
  * JSON Schemaでは表現できない業務ルールを検証する。
+ * - sources[].id が重複していないこと
  * - source_ids / evidence_source_ids が実在する sources[].id を参照していること
  * - 各仮説の evidence_source_ids が1件以上であること（根拠なし仮説を禁止）
  */
 export function validateBusinessRules(data) {
   const errors = [];
-  const sourceIds = new Set((data?.sources ?? []).map((s) => s.id));
+  const sources = data?.sources ?? [];
+  const sourceIds = new Set();
+
+  for (const source of sources) {
+    if (sourceIds.has(source.id)) {
+      errors.push(`sources: 重複したsource id "${source.id}" が存在します`);
+    }
+    sourceIds.add(source.id);
+  }
 
   for (const ref of collectSourceIdRefs(data)) {
     if (!sourceIds.has(ref.id)) {

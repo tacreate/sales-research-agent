@@ -1,0 +1,51 @@
+{
+  "sources": [
+    {
+      "id": "s1",
+      "url": "https://example.com/about",
+      "title": "Example Corp 会社概要ページ（架空データ）"
+    },
+    {
+      "id": "s1",
+      "url": "https://example.com/news/2026-08-01",
+      "title": "Example Corp ニュースリリース（架空データ、id重複）"
+    }
+  ],
+  "company_profile": {
+    "company_name": "Example Corp",
+    "official_url": "https://example.com",
+    "business_overview": {
+      "text": "架空のBtoB SaaS企業。会計業務の自動化サービスを提供している（サンプルデータ）。",
+      "source_ids": ["s1"]
+    },
+    "recent_news": [
+      {
+        "summary": "新機能を発表した（架空のニュース）。",
+        "source_ids": ["s1"]
+      }
+    ],
+    "org_signals": [
+      {
+        "signal": "採用ページでエンジニア職を複数募集中（架空データ）。",
+        "source_ids": ["s1"]
+      }
+    ]
+  },
+  "proposal_hypotheses": [
+    {
+      "hypothesis": "会計業務の自動化ニーズが高い可能性がある（架空の仮説）。",
+      "rationale": "新機能発表と採用強化のシグナルから、業務拡大に伴う効率化ニーズがあると推測される。",
+      "evidence_source_ids": ["s1"]
+    }
+  ],
+  "discovery_questions": [
+    "現在の会計業務における課題は何ですか？",
+    "直近で採用を強化されている背景を教えてください。"
+  ],
+  "uncertainties": [
+    {
+      "note": "資金調達状況は公開情報から確認できなかった。",
+      "reason": "IR情報や公式発表が見つからなかったため"
+    }
+  ]
+}

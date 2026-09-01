@@ -52,8 +52,17 @@ npm test
 ```
 
 - スキーマ検証：[ajv](https://ajv.js.org/)によるJSON Schema準拠チェック
-- 業務ルール検証：`source_ids`／`evidence_source_ids`が実在する`sources[].id`を
-  参照しているか、仮説の根拠（`evidence_source_ids`）が1件以上あるかを`src/validate.js`で検証
+  （未定義フィールドは`additionalProperties: false`で拒否）
+- 業務ルール検証（`src/validate.js`、JSON Schemaでは表現できない事項）：
+  - `sources[].id`の重複拒否
+  - `source_ids`／`evidence_source_ids`が実在する`sources[].id`を参照しているか
+  - 仮説の根拠（`evidence_source_ids`）が1件以上あるか（空配列を拒否）
+- fixture 7種（正常系1・異常系6）で上記を検証（`fixtures/`）
+
+## CI
+
+`.github/workflows/test.yml`により、push・PR作成時にGitHub Actions上で
+Node.js（`lts/*`）で`npm ci` → `npm test`を自動実行する。外部API・n8n・Dockerは使用しない。
 
 ## セットアップ（Phase 2以降で使用予定）
 
@@ -79,7 +88,10 @@ sales-research-agent/
 │   ├── valid.json
 │   ├── missing_required_field.json
 │   ├── invalid_source_reference.json
-│   └── hypothesis_missing_evidence.json
+│   ├── hypothesis_missing_evidence.json
+│   ├── duplicate_source_ids.json
+│   ├── unknown_field.json
+│   └── invalid_evidence_reference.json
 ├── src/
 │   └── validate.js
 ├── test/
@@ -91,6 +103,8 @@ sales-research-agent/
 │   ├── ENVIRONMENT.md
 │   └── ASSUMPTIONS.md
 └── .github/
+    ├── workflows/
+    │   └── test.yml
     ├── ISSUE_TEMPLATE/
     │   ├── bug_report.md
     │   └── feature_request.md

@@ -108,6 +108,34 @@ Phase 1着手時にこの設計を出発点として実装・調整する。
 - n8nワークフローのエクスポートJSONに認証情報が埋め込まれないよう、
   Credentialsはn8nのCredential機能を使い、ワークフロー本体には値を書かない
 
+## OpenAI Structured Output（strict=true）との構造整合性チェック（Phase 1レビュー）
+
+`schema/sales_research_output.schema.json`について、OpenAI Responses APIの
+Structured Output strictモードで一般に要求される構造要件を目視で確認した。
+
+**確認できた点（スキーマファイル内で自己完結的に検証可能な事項）**：
+
+- ルート、および`sources`／`company_profile`／`business_overview`／`recent_news`の要素／
+  `org_signals`の要素／`proposal_hypotheses`の要素／`uncertainties`の要素の
+  すべてのobject型ノードに`"additionalProperties": false`が設定されている
+- 上記すべてのobject型ノードで、`properties`に定義した全キーが`required`にも
+  含まれている（プロパティ数と`required`配列の要素数が一致）
+- `minItems`／`pattern`／`format`等、strictモードで非対応とされることが多いキーワードは
+  使用していない
+
+**断定しないこと（Phase 1では未検証）**：
+
+- 上記は「一般に言われているstrictモードの制約」に対する構造上の自己チェックであり、
+  実際にOpenAI Responses APIへこのスキーマを送信して受理されるかどうかは
+  **未検証**（Phase 1はn8n/Docker/OpenAI/Tavilyへの実通信を行わない方針のため）
+- `$schema: draft-07`という宣言や`description`キーワードの併用がOpenAI側で
+  そのまま許容されるかも未確認
+- 本ファイルはあくまで「schema」部分のみであり、実際のAPIリクエストに必要な
+  `{"name": "...", "strict": true, "schema": {...}}`という外側のラップ構造は
+  含んでいない（Phase 4で実装時に確定）
+
+→ 実際の互換性確認はPhase 4（OpenAI Responses APIへの実接続）で行う。
+
 ## 未確定事項（Phase 1で決定）
 
 - OpenAIのモデル名・温度等のパラメータ
