@@ -36,22 +36,32 @@ Phase 1着手時にこの設計を出発点として実装・調整する。
 - フィールド：企業名（テキスト）、公式URL（URL）、自社サービス概要（複数行テキスト）
 - すべて必須項目とする
 
-### 2. Tavily Search
+### 2. Tavily Search（Phase 3で実装済み）
 
-- クエリ例：`"{企業名}" 会社概要 OR ニュース OR IR`、`"{企業名}" 採用`
-- 目的：企業の事業内容・最近の動き・組織シグナル（採用状況等）を広く拾う
+- クエリ：`"{企業名} 会社概要"`（`search_depth: basic`、`max_results: 3`）
+- 目的：企業の事業内容に関する情報を最小限のクレジット消費で取得する
 - 検索結果はURL・タイトル・スニペットを保持し、後段の出典情報に使う
+- 詳細仕様は[docs/TAVILY.md](TAVILY.md)を参照
 
-### 3. Tavily Extract
+### 3. Tavily Extract（Phase 3で実装済み）
 
-- 対象：公式URL、および検索結果の上位N件
-- 目的：本文を取得し、要約・引用の元データとする
-- 各抽出結果に元URLを保持し、出典として引き継ぐ
+- 対象：公式URLのみ（`extract_depth: basic`）。Phase 1設計案にあった
+  「検索結果上位N件へのExtract拡大」はクレジット消費抑制のためPhase 3では見送った
+  （docs/ASSUMPTIONS.md参照）
+- 目的：公式サイト本文を取得し、要約・引用の元データとする
+- 抽出結果に元URLを保持し、出典として引き継ぐ
 
-### 4. Aggregate / Set
+### 4. Normalize, Dedupe & Structure Output（Phase 3で実装済み、旧称Aggregate/Set）
 
-- 検索・抽出結果を、後続のLLM入力用に1つのテキスト/JSON構造にまとめる
-- 各情報片に出典URLを紐付けたまま保持する（LLMが出典を引用できるようにするため）
+- n8nのCodeノードとして実装（`workflows/phase3-tavily-research.json`）。
+  ロジックは`src/normalize.js`と同一内容を手動で複製している
+- URL正規化（ホスト小文字化、末尾スラッシュ・トラッキングパラメータ・フラグメント除去）
+  により、同一ページを指す異なるURL表記を統合する
+- 正規化後URLで重複排除し、`sources[]`（`id`／`url`／`normalized_url`／`title`／
+  `snippet`／`source_type`／`origin`）を構築する
+- `source_type`は公式URLとホストが一致すれば`official`、異なれば`external`
+- Search/Extractが失敗・空だった場合は、その旨を`search.status`／`extract.status`に
+  明示し、架空の情報で補完しない（詳細はdocs/TAVILY.md）
 
 ### 5. HTTP Request: OpenAI Responses API
 
@@ -72,7 +82,7 @@ Phase 1着手時にこの設計を出発点として実装・調整する。
   出典参照として `source_ids`（`sources[].id`の配列）を必須とする
 - **仮説**（`proposal_hypotheses[]`）は根拠として `evidence_source_ids`
   （`sources[].id`の配列）を必須とする。空配列（根拠ゼロ件）は業務ルール違反として
-  スキーマ検証とは別の参照整合性チェックで弾く（詳細はPhase 1の`schema/README.md`参照）
+  スキーマ検証とは別の参照整合性チェックで弾く（詳細は`src/validate.js`参照）
 - **商談質問**（`discovery_questions[]`）は出典を持たない、単純な文字列配列とする
   （質問自体は情報の主張ではないため出典の対象外）
 - 出典が確認できない事実は `company_profile`／`proposal_hypotheses` に含めず、
@@ -136,9 +146,11 @@ Structured Output strictモードで一般に要求される構造要件を目�
 
 → 実際の互換性確認はPhase 4（OpenAI Responses APIへの実接続）で行う。
 
-## 未確定事項（Phase 1で決定）
+## 未確定事項
 
-- OpenAIのモデル名・温度等のパラメータ
-- Tavily Search/Extractの検索件数・抽出件数の上限
-- Wait再開の具体的な実装方式（Webhook／フォーム）
-- Markdownレポートのテンプレート詳細
+- OpenAIのモデル名・温度等のパラメータ（Phase 4で決定）
+- Wait再開の具体的な実装方式（Webhook／フォーム、Phase 5で決定）
+- Markdownレポートのテンプレート詳細（Phase 5で決定）
+
+Tavily Search/Extractの検索件数・抽出件数の上限はPhase 3で確定した
+（`docs/TAVILY.md`参照。Search: `max_results=3`、Extract: 公式URL1件のみ）。

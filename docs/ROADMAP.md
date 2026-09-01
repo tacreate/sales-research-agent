@@ -31,18 +31,24 @@
 - `N8N_ENCRYPTION_KEY`等の秘密値の安全な取り扱い方針の実装
 - n8n Credentialsの設定手順の文書化はPhase 3以降（実際にCredentialsを使うタイミング）で行う
 
-## Phase 3 — 調査ロジックの実装
+## Phase 3 — Tavily情報取得
 
-- n8n上でForm Trigger〜Tavily〜OpenAI〜Wait〜出力までのノードをスケルトンとして配置
-  （実データでの動作確認は本フェーズ以降）
-
-- Tavily Search／Extractの実クエリ設計・パラメータ確定・実装
-- 検索・抽出結果から`sources`（出典一覧）を構築するロジックの実装
+- Manual Triggerから固定テスト入力（企業名／公式URL／調査目的）を受ける
+- Tavily Search（search_depth=basic、max_results=3）／Extract（公式URLのみ、
+  extract_depth=basic）の実装
+- URL正規化・重複排除、公式情報／外部情報の区別、後続LLM向け構造化JSONへの整形
+- API失敗・検索結果0件・Extract失敗を明示的な状態として出力（架空情報で補完しない）
+- workflow JSON（`workflows/phase3-tavily-research.json`）をリポジトリで管理、
+  Credential未選択でもimport可能な状態を維持
+- 正規化・重複排除ロジックを`src/normalize.js`として独立させ、固定fixtureで自動テスト
+- 実際のTavily API呼び出しは、ユーザーがn8n画面で「Tavily API」Credentialを
+  割り当てるまで行わない
 
 ## Phase 4 — LLM生成の実装
 
+- n8n上にForm Trigger／OpenAI Responses APIノードを追加
 - OpenAI Responses APIへのリクエスト実装（Phase 1で確立したJSON Schema、strict=true）
-- 出典付き出力の検証（受入条件3・4）を実データで確認
+- Phase 3の`sources`をLLM入力として渡し、出典付き出力の検証（受入条件3・4）を実データで確認
 
 ## Phase 5 — 承認フローの実装
 

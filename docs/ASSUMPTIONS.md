@@ -62,9 +62,39 @@ Phase 1以降で認識齟齬があれば修正する。
     `docker-compose.yml`に直接記述した。`.env`（および`.env.example`）は秘密値・
     利用者固有の値（`N8N_ENCRYPTION_KEY`、APIキー）のみを扱う方針とした。
 
+13. **認証情報の種類（Phase 3）**
+    n8nにTavily専用の組み込みCredential型が存在しないことを、インストール済みn8nの
+    node_modules内を検索して確認した（`n8n-nodes-base`／`@n8n`配下に`tavily`関連の
+    Credential定義なし）。そのため、HTTP RequestノードのGeneric Credential Type
+    「HTTP Bearer Auth」を用い、ユーザーがn8n画面でCredential名を
+    「Tavily API」として作成する前提で設計した。
+
+14. **Extractの対象をpublic URLのみに縮小した理由（Phase 3）**
+    Phase 1時点の設計案では検索結果上位N件もExtract対象としていたが、要件2
+    （クレジット消費抑制・MVP最小化）に合わせて公式URLのみに縮小した
+    （詳細はdocs/TAVILY.md）。
+
+15. **n8n Codeノードのロジック複製（Phase 3）**
+    n8nのCodeノードは外部モジュールをimportできないため、`src/normalize.js`と
+    同一のロジックをworkflow JSON内のCodeノードにも手動で複製した。将来的な
+    ドリフト（実装の乖離）のリスクを本ドキュメントに明記し、変更時は両方を
+    同期させる運用とする。ビルドスクリプトによる自動生成は、依存関係・
+    プロセスの複雑化を避けるため今回は導入しなかった。
+
+16. **workflow検証方法（Phase 3）**
+    実際のn8n画面へのログイン（オーナーパスワード入力）は行わず、n8n CLI
+    （`import:workflow`／`export:workflow`）とNode.jsの構文チェック（`node --check`）で
+    workflow JSONの妥当性を検証した。CLIの`execute`コマンドは実行中サーバーと
+    ポート競合するため使用せず、実際のワークフロー実行確認はユーザーが
+    n8n画面でTavily API Credentialを割り当てた後に行う。
+
 ## 未解決事項（人間の判断が必要）
 
 - OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 4で決定）。
 - Tavily API・OpenAI APIの利用契約・料金プランの確認は未実施（ユーザー側で確認が必要）。
 - n8n初回セットアップ（オーナーアカウント作成）はブラウザでの人間の操作が必要
-  （`http://localhost:5678`にアクセスして行う）。
+  （`http://localhost:5678`にアクセスして行う、Phase 2で完了済み）。
+- n8n画面での「Tavily API」Credential作成・ノードへの割り当てはユーザー操作が必要
+  （Phase 3、本PRのマージ後）。
+- workflow内のCodeノードと`src/normalize.js`のロジック同期は手動運用のため、
+  将来の変更時にレビューで両者の一致を確認する必要がある。

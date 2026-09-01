@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "url": "https://example.com/",
+      "raw_content": "Example Corp（架空データ）: 会計業務の自動化SaaSを提供。東京拠点。従業員数50名規模。"
+    }
+  ],
+  "failed_results": [],
+  "response_time": 1.1,
+  "usage": { "credits": 1 },
+  "request_id": "req_example_0001"
+}
