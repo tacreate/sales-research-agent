@@ -48,6 +48,8 @@ MVPとして完成したとみなす条件（Phase 1以降で検証）：
 
 1. 企業名・公式URL・自社サービス概要をフォームから入力できる
 2. Tavily Search／Extractで実際に外部情報を取得できる
+   （Phase 3実施済み：実企業「株式会社サイボウズ」での実API疎通確認で充足を確認。
+   詳細はdocs/ASSUMPTIONS.md）
 3. OpenAI Responses APIへのリクエストがJSON Schema・strict=trueで構造化出力を強制し、
    スキーマ違反時にエラーとして扱える
 4. 生成された事実（企業情報の各項目）には`source_ids`が、仮説には`evidence_source_ids`が

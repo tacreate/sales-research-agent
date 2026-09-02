@@ -149,6 +149,22 @@ Phase 1以降で認識齟齬があれば修正する。
     ／`extract_ok_real_incident.json`としてそのまま回帰テストのfixtureに追加した
     （認証情報・APIキーは含まれていない公開のWeb検索結果のため）。
 
+20. **修正後の実API疎通確認（Phase 3、ユーザーによる再検証で成功）**
+    上記19の修正後、ユーザーが改めてn8n画面で「株式会社サイボウズ」
+    （`https://cybozu.co.jp/`）を対象に実行し、以下を確認した。
+
+    - Search: `status=ok`、`returned_count=3`
+    - Extract: `status=ok`、`failed_urls=[]`
+    - `sources`：4件（`official` 2件、`external` 2件）
+    - `warnings`：`[]`
+    - URL正規化・重複排除・`source_type`（official/external）分類が正常に機能
+    - 出力にAPIキー・認証情報は含まれていない
+
+    公式トップページ由来のsourceで`title`が`null`になる点（Extract結果はページ本文
+    のみを持ち、`title`フィールドが無いためbuildResearchOutput側で常に`null`を
+    設定する仕様）は許容し、追加修正は行わない。これによりPhase 3の受入条件
+    （docs/REQUIREMENTS.md）を実データで満たすことを確認できた。
+
 ## 未解決事項（人間の判断が必要）
 
 - OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 4で決定）。
