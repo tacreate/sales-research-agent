@@ -199,3 +199,39 @@ test('buildResearchOutput: 両方失敗/空の場合はsourcesが空になり、
   assert.deepEqual(output.sources, []);
   assert.ok(output.warnings.some((w) => w.includes('有効な出典が1件も取得できませんでした')));
 });
+
+test('buildResearchOutput: 実運用インシデントの回帰テスト（実際のTavilyレスポンス形状で、Search3件+Extract1件がsourcesへ入り公式/外部が区別される）', () => {
+  // PR #6の実API確認で「search/extractとも成功しているのにsourcesが空になる」不具合が
+  // 発覚した。原因はnormalizeUrlが標準の`URL`クラスに依存していたことで、
+  // n8n Codeノードの実行サンドボックス（JS Task Runner）には`URL`グローバルが
+  // 存在しない（`new URL(...)`が"URL is not defined"で例外になる）ため、
+  // 有効なURLも含めて全て不正なURL扱いとなり除外されていた。
+  // このテストは、実際にインシデントが発生した際の生レスポンス（株式会社サイボウズを
+  // 対象としたTavily Search/Extractの実際の出力、公開情報）をそのままfixture化し、
+  // 同じ不具合が再発しないことを保証する。
+  const input = {
+    company_name: '株式会社サイボウズ',
+    official_url: 'https://cybozu.co.jp/',
+    research_purpose: '導入検討先の事業内容を把握する',
+  };
+  const output = buildResearchOutput({
+    input,
+    searchItem: loadTavilyFixture('search_ok_real_incident.json'),
+    extractItem: loadTavilyFixture('extract_ok_real_incident.json'),
+  });
+
+  assert.equal(output.search.status, 'ok');
+  assert.equal(output.search.returned_count, 3);
+  assert.equal(output.extract.status, 'ok');
+  assert.deepEqual(output.extract.failed_urls, []);
+  assert.deepEqual(output.warnings, []); // statusと矛盾する警告が出ていないこと
+
+  assert.equal(output.sources.length, 4); // Search3件 + Extract1件（重複なし）
+  const officialSources = output.sources.filter((s) => s.source_type === 'official');
+  const externalSources = output.sources.filter((s) => s.source_type === 'external');
+  assert.equal(officialSources.length, 1);
+  assert.equal(officialSources[0].url, 'https://cybozu.co.jp/');
+  assert.equal(officialSources[0].origin[0], 'extract');
+  assert.equal(externalSources.length, 3);
+  assert.ok(externalSources.every((s) => s.origin[0] === 'search'));
+});

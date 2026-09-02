@@ -114,6 +114,41 @@ Phase 1以降で認識齟齬があれば修正する。
     違いで誤って不一致判定されるため、比較前にJSON往復でプレーンオブジェクト化する
     実装上の注意点がある（テスト内にコメントで明記）。
 
+19. **「API成功だがsources空」インシデントの根本原因と修正（Phase 3、実API確認で発覚）**
+    ユーザーが実際に「株式会社サイボウズ」を対象にワークフローを実行したところ、
+    Search/Extractとも成功（search.returned_count=3、extract.status=ok）しているのに
+    `sources`が空になり「有効な出典が1件も取得できませんでした」という警告が出た。
+
+    調査の結果、`normalizeUrl`が標準の`URL`クラス（`new URL(...)`）に依存していたが、
+    **n8n Codeノードの実行サンドボックス（JS Task Runner）にはグローバルの`URL`/
+    `URLSearchParams`が存在せず**（診断用ワークフローを使い捨てコンテナで実行し、
+    `typeof URL === 'undefined'`、`new URL(...)`が`"URL is not defined"`で例外になることを
+    実機確認した）、`require('url')`等の代替も許可されていないことが根本原因と判明した。
+    normalizeUrlは例外をtry/catchでnullとして扱う設計だったため、有効なURLも含めて
+    「不正なURL」として全件除外されていた。
+
+    通常の`npm test`はNode.js上で実行されるため`URL`が普通に使え、この非互換性を
+    検知できなかった（`test/workflow-sync.test.js`のvmサンドボックスにも当初`URL`を
+    明示的に注入しており、同様に見逃していた）。実際にユーザーが提供した実データ
+    （公開情報：日経電子版・SlideShare・Wikipedia・企業公式サイトの検索結果、
+    Tavily APIの実レスポンス）を使い捨てコンテナ上の実際のn8n Codeノード
+    （JS Task Runner）で再実行し、修正前は再現、修正後は解消することを確認した。
+
+    **修正内容**：`normalizeUrl`／`getHostname`を`URL`クラスを一切使わない
+    正規表現＋文字列操作ベースの実装に書き換えた（`src/normalize.js`、workflow内Codeノード
+    の両方）。既存の`normalizeUrl`のテストケース（大文字ホスト・トラッキングパラメータ・
+    フラグメント・末尾スラッシュの正規化）はすべて同じ期待値のまま通過することを確認済み。
+
+    **再発防止**：`test/workflow-sync.test.js`のvmサンドボックスから`URL`の注入を削除し
+    （実際のn8nサンドボックスに合わせた）、`src/normalize.js`とworkflow内Codeノードの
+    ソーステキストに`new URL(`／`URLSearchParams`／`require(`／`fetch(`が含まれていないことを
+    検査する専用テストを追加した。このテストは、修正前のコードに対しては実際に失敗する
+    （`new URL(...)が使われています`）ことを確認済み。
+
+    実データ（サイボウズの検索結果、公開情報）は`fixtures/tavily/search_ok_real_incident.json`
+    ／`extract_ok_real_incident.json`としてそのまま回帰テストのfixtureに追加した
+    （認証情報・APIキーは含まれていない公開のWeb検索結果のため）。
+
 ## 未解決事項（人間の判断が必要）
 
 - OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 4で決定）。

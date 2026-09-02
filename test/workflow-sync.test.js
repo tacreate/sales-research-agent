@@ -44,8 +44,10 @@ function loadBuildResearchOutputFromWorkflowCode(jsCode) {
   }
   const functionsOnly = jsCode.slice(0, idx);
 
-  // vmのサンドボックスにはURL等のグローバルAPIが自動では存在しないため明示的に渡す
-  const context = { URL };
+  // 実際のn8n Codeノードのサンドボックス（JS Task Runner）にはURL等のWeb APIが
+  // 存在しないため、vmサンドボックスにもここでは意図的に何も注入しない
+  // （src/normalize.jsがURL等に依存していないことを、この実行自体でも間接的に検証する）
+  const context = {};
   vm.createContext(context);
   vm.runInContext(`${functionsOnly}\nthis.__buildResearchOutput = buildResearchOutput;`, context);
 
@@ -87,6 +89,54 @@ test('workflowのCodeノードとsrc/normalize.jsは、同一fixtureに対して
       workflowRest,
       moduleRest,
       `${searchFixtureName} + ${extractFixtureName} でworkflowとsrc/normalize.jsの出力が一致しません（同期漏れの可能性）`
+    );
+  }
+});
+
+/**
+ * PR #6の実API確認で発覚したインシデントの再発防止テスト。
+ *
+ * n8n Codeノードの実行サンドボックス（JS Task Runner）には`URL`/`URLSearchParams`が
+ * 存在せず、`require(...)`も許可されていない（実機検証で確認、docs/ASSUMPTIONS.md参照）。
+ * 通常の`npm test`はNode.js上で実行されるため`URL`が普通に使えてしまい、
+ * この非互換性を検知できなかった。そのため、ソースコードのテキストを直接検査し、
+ * n8n Codeノードのサンドボックスで使えないAPIを使用していないことを確認する。
+ */
+/**
+ * コード中のコメント（`/** ... *\/`ブロックコメント、および行頭が`//`の行）を除去する。
+ * 説明コメント内で「使ってはいけないAPI」の例として`new URL(...)`等の文字列に
+ * 言及しても誤検知しないようにするための、簡易的な処理（本格的なJSパーサーは使わない）。
+ */
+function stripComments(code) {
+  const withoutBlockComments = code.replace(/\/\*[\s\S]*?\*\//g, '');
+  return withoutBlockComments
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
+}
+
+test('src/normalize.jsとworkflow内Codeノードは、n8n Codeノードのサンドボックスで未提供のAPI（URL/require等）を使用していない', () => {
+  const normalizeSource = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'normalize.js'), 'utf-8'));
+  const workflow = JSON.parse(fs.readFileSync(WORKFLOW_PATH, 'utf-8'));
+  const jsCode = stripComments(extractCodeNodeJs(workflow));
+
+  const forbiddenPatterns = [
+    { pattern: /\bnew\s+URL\s*\(/, label: 'new URL(...)' },
+    { pattern: /\bURLSearchParams\b/, label: 'URLSearchParams' },
+    { pattern: /\brequire\s*\(/, label: 'require(...)' },
+    { pattern: /\bfetch\s*\(/, label: 'fetch(...)' },
+  ];
+
+  for (const { pattern, label } of forbiddenPatterns) {
+    assert.equal(
+      pattern.test(normalizeSource),
+      false,
+      `src/normalize.jsで${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
+    );
+    assert.equal(
+      pattern.test(jsCode),
+      false,
+      `workflow内のCodeノードで${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
     );
   }
 });

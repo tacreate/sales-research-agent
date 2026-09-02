@@ -9,37 +9,65 @@
 
 const TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref'];
 
+// http(s) URLのみを対象とする単純なパーサー。
+// 注意：n8nのCodeノードのサンドボックス（JS Task Runner）にはグローバルの`URL`/
+// `URLSearchParams`が存在せず（`new URL(...)`は"URL is not defined"で例外になる）、
+// `require('url')`も許可されていないため、標準の`URL`クラスを一切使わずに
+// 正規表現と文字列操作のみで実装している（詳細はdocs/ASSUMPTIONS.md）。
+const ABSOLUTE_HTTP_URL_PATTERN = /^(https?):\/\/([^/?#:]+)(?::(\d+))?([^?#]*)(?:\?([^#]*))?(?:#.*)?$/i;
+
+function parseHttpUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const match = ABSOLUTE_HTTP_URL_PATTERN.exec(rawUrl.trim());
+  if (!match) return null;
+  const [, protocol, hostname, port, path, query] = match;
+  return { protocol: protocol.toLowerCase(), hostname, port: port || '', pathname: path || '', query: query || '' };
+}
+
+function decodeQueryKey(rawKey) {
+  try {
+    return decodeURIComponent(rawKey.replace(/\+/g, ' '));
+  } catch {
+    return rawKey;
+  }
+}
+
 /** URLを正規化する。不正なURLはnullを返す（架空の値で補わない）。 */
 export function normalizeUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return null;
-  let u;
-  try {
-    u = new URL(rawUrl);
-  } catch {
-    return null;
-  }
+  const parsed = parseHttpUrl(rawUrl);
+  if (!parsed) return null;
 
-  u.hostname = u.hostname.toLowerCase();
-  if ((u.protocol === 'http:' && u.port === '80') || (u.protocol === 'https:' && u.port === '443')) {
-    u.port = '';
-  }
-  for (const p of TRACKING_PARAMS) u.searchParams.delete(p);
-  u.searchParams.sort();
-  u.hash = '';
+  const hostname = parsed.hostname.toLowerCase();
+  const port = (parsed.protocol === 'http' && parsed.port === '80') || (parsed.protocol === 'https' && parsed.port === '443')
+    ? ''
+    : parsed.port;
 
-  let pathname = u.pathname;
+  let pathname = parsed.pathname || '/';
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
   if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
-  u.pathname = pathname;
 
-  return u.toString();
+  const params = [];
+  for (const pair of parsed.query ? parsed.query.split('&') : []) {
+    if (!pair) continue;
+    const eqIdx = pair.indexOf('=');
+    const rawKey = eqIdx === -1 ? pair : pair.slice(0, eqIdx);
+    const rawValue = eqIdx === -1 ? '' : pair.slice(eqIdx + 1);
+    if (TRACKING_PARAMS.includes(decodeQueryKey(rawKey))) continue;
+    params.push([rawKey, rawValue]);
+  }
+  params.sort((a, b) => {
+    const ka = decodeQueryKey(a[0]);
+    const kb = decodeQueryKey(b[0]);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  const query = params.map(([k, v]) => (v ? `${k}=${v}` : k)).join('&');
+
+  return `${parsed.protocol}://${hostname}${port ? `:${port}` : ''}${pathname}${query ? `?${query}` : ''}`;
 }
 
 function getHostname(rawUrl) {
-  try {
-    return new URL(rawUrl).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
+  const parsed = parseHttpUrl(rawUrl);
+  return parsed ? parsed.hostname.toLowerCase() : null;
 }
 
 /** URLが公式URLと同一ホストかどうかで official/external を判定する。 */
