@@ -1,0 +1,277 @@
+{
+  "id": "4e794051-b04c-4954-b212-ee975385ad7e",
+  "name": "営業前企業調査エージェント",
+  "nodes": [
+    {
+      "id": "724a8210-636c-475b-aa82-13757e8efa3c",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "0220ba3c-4be1-4f43-b002-03fa248ed247",
+      "name": "Fixed Test Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        80,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1a1a1a1-0000-4000-8000-000000000001",
+              "name": "company_name",
+              "type": "string",
+              "value": "Example Corp"
+            },
+            {
+              "id": "a1a1a1a1-0000-4000-8000-000000000002",
+              "name": "official_url",
+              "type": "string",
+              "value": "https://example.com/"
+            },
+            {
+              "id": "a1a1a1a1-0000-4000-8000-000000000003",
+              "name": "research_purpose",
+              "type": "string",
+              "value": "導入検討先の事業内容と最近の動きを把握する（架空データ、固定テスト入力）"
+            },
+            {
+              "id": "a1a1a1a1-0000-4000-8000-000000000004",
+              "name": "offering",
+              "type": "string",
+              "value": "生成AI導入・業務自動化支援"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "18390e7a-73df-4153-9a66-d7c2239082c7",
+      "name": "Tavily Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        -80
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.company_name + \" 会社概要 最新ニュース\", search_depth: \"basic\", max_results: 3 }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "64eecc78-4373-4bb0-9fff-db6cc8658356",
+      "name": "Tavily Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        80
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/extract",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ urls: [$json.official_url], extract_depth: \"basic\" }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "b3f1c9a0-1a2b-4c3d-9e4f-5a6b7c8d9e0f",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        560,
+        0
+      ],
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      }
+    },
+    {
+      "id": "26313fc1-64c3-4219-b529-2b5d3677bf04",
+      "name": "Normalize, Dedupe & Structure Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// このロジックは src/normalize.js と同一内容を手動で複製している（n8n Codeノードは\n// 外部モジュールをimportできないため）。変更時は両方を同期させること。\n\nconst TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref'];\n\n// http(s) URLのみを対象とする単純なパーサー。\n// 注意：n8nのCodeノードのサンドボックス（JS Task Runner）にはグローバルの`URL`/\n// `URLSearchParams`が存在せず、`require('url')`も許可されていないため、標準の\n// `URL`クラスを一切使わずに正規表現と文字列操作のみで実装している。\nconst ABSOLUTE_HTTP_URL_PATTERN = /^(https?):\\/\\/([^/?#:]+)(?::(\\d+))?([^?#]*)(?:\\?([^#]*))?(?:#.*)?$/i;\n\nfunction parseHttpUrl(rawUrl) {\n  if (!rawUrl || typeof rawUrl !== 'string') return null;\n  const match = ABSOLUTE_HTTP_URL_PATTERN.exec(rawUrl.trim());\n  if (!match) return null;\n  const [, protocol, hostname, port, path, query] = match;\n  return { protocol: protocol.toLowerCase(), hostname, port: port || '', pathname: path || '', query: query || '' };\n}\n\nfunction decodeQueryKey(rawKey) {\n  try {\n    return decodeURIComponent(rawKey.replace(/\\+/g, ' '));\n  } catch (e) {\n    return rawKey;\n  }\n}\n\nfunction normalizeUrl(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  if (!parsed) return null;\n\n  const hostname = parsed.hostname.toLowerCase();\n  const port = (parsed.protocol === 'http' && parsed.port === '80') || (parsed.protocol === 'https' && parsed.port === '443')\n    ? ''\n    : parsed.port;\n\n  let pathname = parsed.pathname || '/';\n  if (!pathname.startsWith('/')) pathname = `/${pathname}`;\n  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);\n\n  const params = [];\n  for (const pair of parsed.query ? parsed.query.split('&') : []) {\n    if (!pair) continue;\n    const eqIdx = pair.indexOf('=');\n    const rawKey = eqIdx === -1 ? pair : pair.slice(0, eqIdx);\n    const rawValue = eqIdx === -1 ? '' : pair.slice(eqIdx + 1);\n    if (TRACKING_PARAMS.includes(decodeQueryKey(rawKey))) continue;\n    params.push([rawKey, rawValue]);\n  }\n  params.sort((a, b) => {\n    const ka = decodeQueryKey(a[0]);\n    const kb = decodeQueryKey(b[0]);\n    return ka < kb ? -1 : ka > kb ? 1 : 0;\n  });\n  const query = params.map(([k, v]) => (v ? `${k}=${v}` : k)).join('&');\n\n  return `${parsed.protocol}://${hostname}${port ? `:${port}` : ''}${pathname}${query ? `?${query}` : ''}`;\n}\n\nfunction getHostname(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  return parsed ? parsed.hostname.toLowerCase() : null;\n}\n\nfunction classifySourceType(url, officialUrl) {\n  const h1 = getHostname(url);\n  const h2 = getHostname(officialUrl);\n  if (!h1 || !h2) return 'external';\n  return h1 === h2 ? 'official' : 'external';\n}\n\nfunction dedupeSources(rawSources) {\n  const map = new Map();\n  const order = [];\n  let counter = 0;\n  for (const s of rawSources) {\n    const normalized = normalizeUrl(s.url);\n    if (!normalized) continue;\n    if (!map.has(normalized)) {\n      counter += 1;\n      map.set(normalized, {\n        id: 'src' + counter,\n        url: s.url,\n        normalized_url: normalized,\n        title: s.title || null,\n        snippet: s.snippet || null,\n        source_type: s.source_type,\n        origin: [s.origin],\n      });\n      order.push(normalized);\n    } else {\n      const entry = map.get(normalized);\n      if (!entry.title && s.title) entry.title = s.title;\n      if (!entry.snippet && s.snippet) entry.snippet = s.snippet;\n      if (!entry.origin.includes(s.origin)) entry.origin.push(s.origin);\n    }\n  }\n  return order.map((k) => map.get(k));\n}\n\nfunction extractErrorMessage(err) {\n  if (typeof err === 'string') return err;\n  if (err && typeof err === 'object') return err.message || JSON.stringify(err);\n  return 'unknown error';\n}\n\nfunction buildSearchSummary(searchItem, query, maxResults) {\n  if (searchItem && searchItem.error) {\n    return { status: 'error', query, max_results: maxResults, returned_count: 0, error_message: extractErrorMessage(searchItem.error) };\n  }\n  const results = Array.isArray(searchItem && searchItem.results) ? searchItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', query, max_results: maxResults, returned_count: 0 };\n  }\n  return { status: 'ok', query, max_results: maxResults, returned_count: results.length };\n}\n\nfunction buildExtractSummary(extractItem, requestedUrl) {\n  if (extractItem && extractItem.error) {\n    return { status: 'error', requested_url: requestedUrl, error_message: extractErrorMessage(extractItem.error), failed_urls: [] };\n  }\n  const failed = Array.isArray(extractItem && extractItem.failed_results) ? extractItem.failed_results : [];\n  if (failed.length > 0) {\n    return {\n      status: 'error',\n      requested_url: requestedUrl,\n      error_message: failed.map((f) => f.url + ': ' + f.error).join('; '),\n      failed_urls: failed.map((f) => f.url),\n    };\n  }\n  const results = Array.isArray(extractItem && extractItem.results) ? extractItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', requested_url: requestedUrl, failed_urls: [] };\n  }\n  return { status: 'ok', requested_url: requestedUrl, failed_urls: [] };\n}\n\nfunction buildResearchOutput({ input, searchItem, extractItem }) {\n  const query = input.company_name + ' 会社概要 最新ニュース';\n  const maxResults = 3;\n  const search = buildSearchSummary(searchItem, query, maxResults);\n  const extract = buildExtractSummary(extractItem, input.official_url);\n\n  const rawSources = [];\n\n  if (extract.status === 'ok') {\n    for (const r of extractItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: null,\n        snippet: r.raw_content ? String(r.raw_content).slice(0, 500) : null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'extract',\n      });\n    }\n  }\n\n  if (search.status === 'ok') {\n    for (const r of searchItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: r.title || null,\n        snippet: r.content || null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'search',\n      });\n    }\n  }\n\n  const sources = dedupeSources(rawSources);\n\n  const warnings = [];\n  if (search.status === 'error') warnings.push('Tavily Search呼び出しに失敗しました: ' + search.error_message);\n  if (search.status === 'empty') warnings.push('Tavily Searchの結果が0件でした。');\n  if (extract.status === 'error') warnings.push('Tavily Extractに失敗しました: ' + extract.error_message);\n  if (sources.length === 0) warnings.push('有効な出典が1件も取得できませんでした。');\n\n  return {\n    input,\n    search,\n    extract,\n    sources,\n    warnings,\n    generated_at: new Date().toISOString(),\n  };\n}\n\nconst input = $('Fixed Test Input').first().json;\nconst searchItem = $('Tavily Search').first().json;\nconst extractItem = $('Tavily Extract').first().json;\n\nreturn [{ json: buildResearchOutput({ input, searchItem, extractItem }) }];"
+      }
+    },
+    {
+      "id": "c4d5e6f7-1234-4abc-9def-0123456789ab",
+      "name": "Build OpenAI Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// このロジックは src/openai_request.js と同一内容を手動で複製している（n8n Codeノードは\n// 外部モジュールをimportできないため）。変更時は両方を同期させること。\n\nconst OPENAI_MODEL = 'gpt-5.6-terra';\nconst OPENAI_REASONING_EFFORT = 'low';\nconst OPENAI_MAX_OUTPUT_TOKENS = 4000;\n\nconst PHASE4_SCHEMA = {\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"title\": \"Phase4LlmAnalysisOutput\",\n  \"description\": \"OpenAI Responses API（text.format: json_schema, strict: true）へ送信するLLM生成部分のみのSchema。company_name/official_url/sourcesはPhase3の確定情報をそのまま使うためLLMには生成させない。事実(business_overview/recent_news/org_signals)はsource_ids、仮説(proposal_hypotheses)はevidence_source_idsをそれぞれminItems:1で必須とする。取得できない最近の動きはrecent_newsに含めずuncertaintiesへ記録する（プロンプト指示）。全objectはadditionalProperties:falseとし、定義した全プロパティをrequiredにする。\",\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"properties\": {\n    \"company_profile\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"properties\": {\n        \"business_overview\": {\n          \"type\": \"object\",\n          \"additionalProperties\": false,\n          \"properties\": {\n            \"text\": { \"type\": \"string\" },\n            \"source_ids\": {\n              \"type\": \"array\",\n              \"minItems\": 1,\n              \"items\": { \"type\": \"string\" }\n            }\n          },\n          \"required\": [\"text\", \"source_ids\"]\n        },\n        \"recent_news\": {\n          \"type\": \"array\",\n          \"description\": \"出典から裏付けが取れる最近の動きのみ。無ければ空配列にし、uncertaintiesへ理由を記録する。\",\n          \"items\": {\n            \"type\": \"object\",\n            \"additionalProperties\": false,\n            \"properties\": {\n              \"summary\": { \"type\": \"string\" },\n              \"source_ids\": {\n                \"type\": \"array\",\n                \"minItems\": 1,\n                \"items\": { \"type\": \"string\" }\n              }\n            },\n            \"required\": [\"summary\", \"source_ids\"]\n          }\n        },\n        \"org_signals\": {\n          \"type\": \"array\",\n          \"items\": {\n            \"type\": \"object\",\n            \"additionalProperties\": false,\n            \"properties\": {\n              \"signal\": { \"type\": \"string\" },\n              \"source_ids\": {\n                \"type\": \"array\",\n                \"minItems\": 1,\n                \"items\": { \"type\": \"string\" }\n              }\n            },\n            \"required\": [\"signal\", \"source_ids\"]\n          }\n        }\n      },\n      \"required\": [\"business_overview\", \"recent_news\", \"org_signals\"]\n    },\n    \"proposal_hypotheses\": {\n      \"type\": \"array\",\n      \"description\": \"offering（提案する商品・サービス）との適合理由をrationaleに含める。\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"properties\": {\n          \"hypothesis\": { \"type\": \"string\" },\n          \"rationale\": { \"type\": \"string\" },\n          \"evidence_source_ids\": {\n            \"type\": \"array\",\n            \"minItems\": 1,\n            \"items\": { \"type\": \"string\" }\n          }\n        },\n        \"required\": [\"hypothesis\", \"rationale\", \"evidence_source_ids\"]\n      }\n    },\n    \"discovery_questions\": {\n      \"type\": \"array\",\n      \"description\": \"offeringを前提に商談で確認すべき質問。出典は不要。\",\n      \"items\": { \"type\": \"string\" }\n    },\n    \"uncertainties\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"properties\": {\n          \"note\": { \"type\": \"string\" },\n          \"reason\": { \"type\": \"string\" }\n        },\n        \"required\": [\"note\", \"reason\"]\n      }\n    }\n  },\n  \"required\": [\"company_profile\", \"proposal_hypotheses\", \"discovery_questions\", \"uncertainties\"]\n};\n\nfunction formatSourceLine(source) {\n  const title = source.title ? source.title : '(タイトルなし)';\n  const snippet = source.snippet ? source.snippet : '(本文なし)';\n  return `[${source.id}] (${source.source_type}) ${title}\\nURL: ${source.url}\\n${snippet}`;\n}\n\nfunction buildPromptText({ input, sources }) {\n  const groundingLines = (sources ?? []).map(formatSourceLine).join('\\n\\n');\n\n  return `あなたは営業担当者の商談準備を支援するリサーチアシスタントです。\n以下の出典（Tavilyの検索・抽出結果）のみを根拠に、企業情報の分析を行ってください。\n出典に無い情報を推測や一般知識で補ってはいけません。\n\n# 調査対象\n企業名: ${input.company_name}\n公式URL: ${input.official_url}\n調査目的: ${input.research_purpose}\n\n# 提案する商品・サービス（offering）\n${input.offering}\n\n# 出典一覧\n${groundingLines || '(出典なし)'}\n\n# 指示\n- business_overview / recent_news / org_signals の各項目には、根拠となった出典のidを source_ids に必ず1件以上含めてください。\n- 出典から裏付けが取れない「最近の動き」は recent_news に含めず、uncertainties に理由とともに記録してください。\n- proposal_hypotheses は、上記offeringとの適合理由を rationale に含め、evidence_source_ids に根拠となる出典idを1件以上含めてください。\n- discovery_questions は、offeringを前提に、商談で確認すべき質問にしてください。出典は不要です。\n- 出典が無い、または情報が不足している場合は uncertainties に記録してください。`;\n}\n\nfunction buildOpenAiRequestBody({ input, sources }) {\n  return {\n    model: OPENAI_MODEL,\n    reasoning: { effort: OPENAI_REASONING_EFFORT },\n    max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,\n    input: buildPromptText({ input, sources }),\n    text: {\n      format: {\n        type: 'json_schema',\n        name: 'phase4_llm_analysis_output',\n        strict: true,\n        schema: PHASE4_SCHEMA,\n      },\n    },\n  };\n}\n\nconst input = $('Fixed Test Input').first().json;\nconst tavilyOutput = $('Normalize, Dedupe & Structure Output').first().json;\n\nreturn [{ json: buildOpenAiRequestBody({ input, sources: tavilyOutput.sources }) }];\n"
+      }
+    },
+    {
+      "id": "d5e6f7a8-2345-4bcd-8ef0-123456789abc",
+      "name": "OpenAI Responses API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1280,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "e6f7a8b9-3456-4cde-9f01-23456789abcd",
+      "name": "Validate & Assemble Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// このロジックは src/assemble_report.js・src/render_markdown.js と同一内容を手動で\n// 複製している（n8n Codeノードは外部モジュール（ajv等）をimportできないため）。\n// 変更時は両方（3ファイル）を同期させること。Phase4のLLM出力Schema検証はajv等の\n// ライブラリを使わず、手書きの構造チェックのみで行う（Phase3のnormalize.jsと同じ方針）。\n\nconst OPENAI_MODEL = 'gpt-5.6-terra';\n\nfunction isNonEmptyStringArray(value) {\n  return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string');\n}\n\nfunction hasExactKeys(obj, keys) {\n  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return false;\n  const objKeys = Object.keys(obj);\n  if (objKeys.length !== keys.length) return false;\n  return keys.every((k) => objKeys.includes(k));\n}\n\nfunction validatePhase4Schema(analysis) {\n  const errors = [];\n  const fail = (msg) => errors.push(msg);\n\n  if (!hasExactKeys(analysis, ['company_profile', 'proposal_hypotheses', 'discovery_questions', 'uncertainties'])) {\n    fail('root: company_profile/proposal_hypotheses/discovery_questions/uncertaintiesが過不足なく必要です');\n    return { valid: false, errors };\n  }\n\n  const cp = analysis.company_profile;\n  if (!hasExactKeys(cp, ['business_overview', 'recent_news', 'org_signals'])) {\n    fail('company_profile: business_overview/recent_news/org_signalsが過不足なく必要です');\n  } else {\n    const bo = cp.business_overview;\n    if (!hasExactKeys(bo, ['text', 'source_ids']) || typeof bo.text !== 'string' || !isNonEmptyStringArray(bo.source_ids)) {\n      fail('company_profile.business_overview: text(string)とsource_ids(1件以上のstring配列)が必要です');\n    }\n\n    if (!Array.isArray(cp.recent_news)) {\n      fail('company_profile.recent_news: 配列である必要があります');\n    } else {\n      cp.recent_news.forEach((item, i) => {\n        if (\n          !hasExactKeys(item, ['summary', 'source_ids']) ||\n          typeof item.summary !== 'string' ||\n          !isNonEmptyStringArray(item.source_ids)\n        ) {\n          fail(`company_profile.recent_news[${i}]: summary(string)とsource_ids(1件以上のstring配列)が必要です`);\n        }\n      });\n    }\n\n    if (!Array.isArray(cp.org_signals)) {\n      fail('company_profile.org_signals: 配列である必要があります');\n    } else {\n      cp.org_signals.forEach((item, i) => {\n        if (\n          !hasExactKeys(item, ['signal', 'source_ids']) ||\n          typeof item.signal !== 'string' ||\n          !isNonEmptyStringArray(item.source_ids)\n        ) {\n          fail(`company_profile.org_signals[${i}]: signal(string)とsource_ids(1件以上のstring配列)が必要です`);\n        }\n      });\n    }\n  }\n\n  if (!Array.isArray(analysis.proposal_hypotheses)) {\n    fail('proposal_hypotheses: 配列である必要があります');\n  } else {\n    analysis.proposal_hypotheses.forEach((item, i) => {\n      if (\n        !hasExactKeys(item, ['hypothesis', 'rationale', 'evidence_source_ids']) ||\n        typeof item.hypothesis !== 'string' ||\n        typeof item.rationale !== 'string' ||\n        !isNonEmptyStringArray(item.evidence_source_ids)\n      ) {\n        fail(`proposal_hypotheses[${i}]: hypothesis/rationale(string)とevidence_source_ids(1件以上のstring配列)が必要です`);\n      }\n    });\n  }\n\n  if (!Array.isArray(analysis.discovery_questions) || !analysis.discovery_questions.every((q) => typeof q === 'string')) {\n    fail('discovery_questions: string配列である必要があります');\n  }\n\n  if (!Array.isArray(analysis.uncertainties)) {\n    fail('uncertainties: 配列である必要があります');\n  } else {\n    analysis.uncertainties.forEach((item, i) => {\n      if (!hasExactKeys(item, ['note', 'reason']) || typeof item.note !== 'string' || typeof item.reason !== 'string') {\n        fail(`uncertainties[${i}]: note/reason(string)が必要です`);\n      }\n    });\n  }\n\n  return { valid: errors.length === 0, errors };\n}\n\nfunction collectSourceIdRefs(analysis) {\n  const refs = [];\n  const pushRefs = (ids, refPath) => {\n    if (!Array.isArray(ids)) return;\n    for (const id of ids) refs.push({ id, path: refPath });\n  };\n\n  const overview = analysis?.company_profile?.business_overview;\n  if (overview) pushRefs(overview.source_ids, 'company_profile.business_overview.source_ids');\n\n  (analysis?.company_profile?.recent_news ?? []).forEach((item, i) => {\n    pushRefs(item.source_ids, `company_profile.recent_news[${i}].source_ids`);\n  });\n\n  (analysis?.company_profile?.org_signals ?? []).forEach((item, i) => {\n    pushRefs(item.source_ids, `company_profile.org_signals[${i}].source_ids`);\n  });\n\n  (analysis?.proposal_hypotheses ?? []).forEach((item, i) => {\n    pushRefs(item.evidence_source_ids, `proposal_hypotheses[${i}].evidence_source_ids`);\n  });\n\n  return refs;\n}\n\nfunction validateAnalysis(analysis, sourceIds) {\n  if (typeof analysis !== 'object' || analysis === null || Array.isArray(analysis)) {\n    return { valid: false, status: 'invalid_schema', detail: 'LLM出力がオブジェクトではありません' };\n  }\n\n  const schemaResult = validatePhase4Schema(analysis);\n  if (!schemaResult.valid) {\n    return { valid: false, status: 'invalid_schema', detail: schemaResult.errors.join(' / ') };\n  }\n\n  const knownIds = new Set(sourceIds);\n  const invalidRefs = collectSourceIdRefs(analysis).filter((ref) => !knownIds.has(ref.id));\n  if (invalidRefs.length > 0) {\n    const detail = invalidRefs.map((r) => `${r.path}: \"${r.id}\"`).join(', ');\n    return { valid: false, status: 'invalid_reference', detail: `存在しないsource idを参照しています: ${detail}` };\n  }\n\n  return { valid: true };\n}\n\nfunction classifyResponse(response) {\n  if (!response || typeof response !== 'object') {\n    return { status: 'empty', detail: 'レスポンスが空、または不正な形式です' };\n  }\n\n  if (response.error) {\n    const message = typeof response.error === 'string' ? response.error : response.error.message;\n    return { status: 'error', detail: message ?? 'OpenAI APIがエラーを返しました' };\n  }\n\n  if (response.status === 'failed') {\n    return { status: 'error', detail: response.error?.message ?? 'OpenAIの応答status=failed' };\n  }\n\n  if (response.status === 'incomplete') {\n    return {\n      status: 'incomplete',\n      detail: response.incomplete_details?.reason ?? 'OpenAIの応答が不完全でした（理由不明）',\n    };\n  }\n\n  if (response.status !== 'completed') {\n    return { status: 'empty', detail: `想定外のstatusです: ${response.status}` };\n  }\n\n  const messageItem = (response.output ?? []).find((o) => o.type === 'message');\n  const contentItems = messageItem?.content ?? [];\n\n  const refusal = contentItems.find((c) => c.type === 'refusal');\n  if (refusal) {\n    return { status: 'refusal', detail: refusal.refusal ?? 'OpenAIがリクエストを拒否しました' };\n  }\n\n  const textItem = contentItems.find((c) => c.type === 'output_text');\n  const text = textItem?.text;\n  if (!text || text.trim() === '') {\n    return { status: 'empty', detail: '出力テキストが空でした' };\n  }\n\n  let parsed;\n  try {\n    parsed = JSON.parse(text);\n  } catch (e) {\n    return { status: 'invalid_schema', detail: `JSONとして解析できませんでした: ${e.message}` };\n  }\n\n  return { status: 'ok', analysis: parsed };\n}\n\nfunction assembleReport({ input, tavilyOutput, openAiResponse }) {\n  const sources = tavilyOutput?.sources ?? [];\n  const sourceIds = sources.map((s) => s.id);\n\n  const classification = classifyResponse(openAiResponse);\n\n  let llmStatus = classification.status;\n  let llmDetail = classification.detail ?? null;\n  let report = null;\n\n  if (classification.status === 'ok') {\n    const validation = validateAnalysis(classification.analysis, sourceIds);\n    if (!validation.valid) {\n      llmStatus = validation.status;\n      llmDetail = validation.detail;\n    } else {\n      const analysis = classification.analysis;\n      report = {\n        sources,\n        company_profile: {\n          company_name: input.company_name,\n          official_url: input.official_url,\n          business_overview: analysis.company_profile.business_overview,\n          recent_news: analysis.company_profile.recent_news,\n          org_signals: analysis.company_profile.org_signals,\n        },\n        proposal_hypotheses: analysis.proposal_hypotheses,\n        discovery_questions: analysis.discovery_questions,\n        uncertainties: analysis.uncertainties,\n      };\n    }\n  }\n\n  return {\n    meta: {\n      input,\n      generated_at: new Date().toISOString(),\n      tavily: {\n        search: tavilyOutput?.search ?? null,\n        extract: tavilyOutput?.extract ?? null,\n        warnings: tavilyOutput?.warnings ?? [],\n      },\n      llm: {\n        status: llmStatus,\n        model: OPENAI_MODEL,\n        detail: llmDetail,\n      },\n    },\n    report,\n  };\n}\n\nfunction renderSourceRefs(ids) {\n  if (!ids || ids.length === 0) return '';\n  return ' ' + ids.map((id) => `[^${id}]`).join('');\n}\n\nfunction renderFailureMarkdown(meta) {\n  const companyName = meta.input.company_name;\n  return `# ${companyName} 商談準備レポート（生成失敗）\n\n生成日時: ${meta.generated_at}\n\n## 結果\n\nOpenAIによる分析の生成に失敗しました。架空の情報で補うことは行っていません。\n\n- 状態: \\`${meta.llm.status}\\`\n- 詳細: ${meta.llm.detail ?? '(詳細不明)'}\n\nTavilyの調査結果自体は取得できています（下記参照）。再実行するか、\n入力・出典の内容を確認してください。\n\n- Search: ${meta.tavily.search?.status ?? '不明'}\n- Extract: ${meta.tavily.extract?.status ?? '不明'}\n`;\n}\n\nfunction renderMarkdown({ meta, report }) {\n  if (!report) {\n    return renderFailureMarkdown(meta);\n  }\n\n  const profile = report.company_profile;\n\n  const recentNewsSection =\n    profile.recent_news.length > 0\n      ? profile.recent_news.map((n) => `- ${n.summary}${renderSourceRefs(n.source_ids)}`).join('\\n')\n      : '（出典から裏付けが取れる最近の動きは見つかりませんでした。下記「注意事項」を参照）';\n\n  const orgSignalsSection =\n    profile.org_signals.length > 0\n      ? profile.org_signals.map((s) => `- ${s.signal}${renderSourceRefs(s.source_ids)}`).join('\\n')\n      : '（該当情報なし）';\n\n  const hypothesesSection = report.proposal_hypotheses\n    .map((h, i) => `${i + 1}. **${h.hypothesis}**${renderSourceRefs(h.evidence_source_ids)}\\n   ${h.rationale}`)\n    .join('\\n');\n\n  const questionsSection = report.discovery_questions.map((q) => `- ${q}`).join('\\n');\n\n  const uncertaintiesSection =\n    report.uncertainties.length > 0\n      ? report.uncertainties.map((u) => `- ${u.note}（理由: ${u.reason}）`).join('\\n')\n      : '（特になし）';\n\n  const footnotes = report.sources.map((s) => `[^${s.id}]: [${s.title ?? s.url}](${s.url})`).join('\\n');\n\n  return `# ${profile.company_name} 商談準備レポート\n\n生成日時: ${meta.generated_at}\n調査目的: ${meta.input.research_purpose}\n提案する商品・サービス: ${meta.input.offering}\n\n## 企業概要\n\n${profile.business_overview.text}${renderSourceRefs(profile.business_overview.source_ids)}\n\n## 最近の動き\n\n${recentNewsSection}\n\n## 組織シグナル\n\n${orgSignalsSection}\n\n## 導入・提案仮説\n\n${hypothesesSection}\n\n## 商談で確認すべき質問\n\n${questionsSection}\n\n## 注意事項・不足情報\n\n${uncertaintiesSection}\n\n## 出典\n\n${footnotes}\n`;\n}\n\nconst input = $('Fixed Test Input').first().json;\nconst tavilyOutput = $('Normalize, Dedupe & Structure Output').first().json;\nconst openAiResponse = $('OpenAI Responses API').first().json;\n\nconst result = assembleReport({ input, tavilyOutput, openAiResponse });\nconst markdown = renderMarkdown(result);\n\nreturn [{ json: { meta: result.meta, report: result.report, markdown } }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fixed Test Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fixed Test Input": {
+      "main": [
+        [
+          {
+            "node": "Tavily Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tavily Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Search": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Extract": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Normalize, Dedupe & Structure Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize, Dedupe & Structure Output": {
+      "main": [
+        [
+          {
+            "node": "Build OpenAI Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build OpenAI Request": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Responses API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Responses API": {
+      "main": [
+        [
+          {
+            "node": "Validate & Assemble Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

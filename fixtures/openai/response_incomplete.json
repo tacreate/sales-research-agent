@@ -1,0 +1,9 @@
+{
+  "id": "resp_incomplete_0001",
+  "object": "response",
+  "status": "incomplete",
+  "model": "gpt-5.6-terra",
+  "incomplete_details": { "reason": "max_output_tokens" },
+  "output": [],
+  "usage": { "input_tokens": 1200, "output_tokens": 4000, "total_tokens": 5200 }
+}

@@ -1,0 +1,32 @@
+{
+  "company_profile": {
+    "business_overview": {
+      "text": "会計業務の自動化SaaSを提供する企業（架空データ）。東京に拠点を置き、従業員数は50名規模。",
+      "source_ids": ["src1"]
+    },
+    "recent_news": [
+      {
+        "summary": "新機能を発表した（架空のニュース）。",
+        "source_ids": ["src2"]
+      }
+    ],
+    "org_signals": []
+  },
+  "proposal_hypotheses": [
+    {
+      "hypothesis": "会計業務の自動化ニーズが高く、生成AIによる業務自動化支援との親和性が高い（架空の仮説）。",
+      "rationale": "会計SaaSの提供企業であり、自社の業務プロセスにも自動化ノウハウを活用したい可能性が高い。新機能発表という動きから、追加の業務効率化投資に前向きと推測される。",
+      "evidence_source_ids": ["src1", "src2"]
+    }
+  ],
+  "discovery_questions": [
+    "現在、社内の定型業務のうち生成AIで自動化したい業務はありますか？",
+    "直近発表された新機能の開発体制で、業務効率化のボトルネックはありましたか？"
+  ],
+  "uncertainties": [
+    {
+      "note": "資金調達状況は出典から確認できなかった。",
+      "reason": "検索結果・公式サイトにIR情報が含まれていなかったため"
+    }
+  ]
+}

@@ -165,15 +165,63 @@ Phase 1以降で認識齟齬があれば修正する。
     設定する仕様）は許容し、追加修正は行わない。これによりPhase 3の受入条件
     （docs/REQUIREMENTS.md）を実データで満たすことを確認できた。
 
+21. **Form Trigger／Wait/HITLの見送り（Phase 4、CLAUDE.md Missionに基づく判断）**
+    既存ROADMAP.mdのPhase 4計画には「Form Trigger追加」が含まれていたが、CLAUDE.mdの
+    Mission（案件応募に使えるデモを最短で作る）・判断ルール（デモに必須でない追加開発は
+    停止する）と矛盾すると判断し、ユーザー確認のうえで見送った。Manual Trigger＋固定
+    テスト入力でもデモとしての説得力は十分と判断した。Wait/HITL（Phase 5）も同じ理由で
+    Phase 4では着手していない。
+
+22. **LLMに`sources`／`company_name`／`official_url`を生成させない設計（Phase 4）**
+    OpenAIのStructured Output契約（`schema/phase4_llm_analysis_output.schema.json`）には
+    あえて`sources`／`company_name`／`official_url`を含めなかった。これらはPhase3で
+    既に確定している値であり、LLMに再生成させるとURL・社名の転記ミス（ハルシネーション）
+    のリスクがある。`Validate & Assemble Report`ノードでLLMの分析結果とPhase3の確定値を
+    機械的に合成することで、このリスクを構造的に排除した。
+
+23. **`minItems: 1`の採用と検証方法（Phase 4、ユーザーの判断で方針転換）**
+    Phase 1では「OpenAI strictモードでの`minItems`対応が不明」という理由でスキーマへの
+    `minItems`追加を見送っていたが、Phase 4でユーザーの明示的な判断により
+    `source_ids`／`evidence_source_ids`に`minItems: 1`を追加した。実際にOpenAI側で
+    強制されるかはPhase 4時点でも未検証（実API呼び出しを行っていないため）だが、
+    受信側（`src/assemble_report.js`）で同じ制約を手書きの構造チェックで必ず検証するため、
+    OpenAI側が仮に強制しなくても空配列がすり抜けることはない。
+
+24. **Phase4のLLM出力検証にajvを使わなかった理由（Phase 4）**
+    `src/assemble_report.js`は当初ajv（Phase1の`src/validate.js`と同様）でSchema検証を
+    実装したが、n8nのCodeノードは外部モジュール（ajv含む）をimportできないため、
+    ワークフローに埋め込むコードとして再利用できないことに気づき、手書きの構造チェック
+    （`validatePhase4Schema`）へ書き換えた。これによりNode.js側とn8n Codeノード側で
+    完全に同一のロジックを複製でき、Phase3の`normalize.js`と同じ運用方針に統一した。
+    「最終出力がPhase1 Schemaと矛盾しないか」の確認は、実行時の再検証ではなく
+    `test/assemble_report.test.js`のテストとして固定した（アセンブリロジックが
+    正しい限り常に満たされる構造のため、実行時の二重検証は行わない）。
+
+25. **Phase1 Schema（`sales_research_output.schema.json`）の`sources[]`拡張（Phase 4）**
+    Phase4の実装中、Phase3の実際の`sources[]`（`normalized_url`／`snippet`／
+    `source_type`／`origin`を含む）を、Phase1のSchema（`id`／`url`／`title`のみ、
+    `additionalProperties: false`）で検証すると失敗することが判明した
+    （`test/assemble_report.test.js`のテストで検出）。`sources[].title`も
+    Extract由来の出典ではnullになり得るため、あわせて矛盾していた。
+    両方とも実際にはPhase3が正しく、Schema側の定義が古かったため、`title`を
+    `["string","null"]`に、`sources[]`に`normalized_url`/`snippet`/`source_type`/`origin`
+    （すべて省略可）を追加してSchema側を実データに合わせて修正した。
+    既存のPhase1 fixture・テスト（7件）への影響が無いことを確認済み。
+
 ## 未解決事項（人間の判断が必要）
 
-- OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 4で決定）。
 - Tavily API・OpenAI APIの利用契約・料金プランの確認は未実施（ユーザー側で確認が必要）。
+  特にOpenAI APIはChatGPT Plus等のサブスクリプションとは別課金のため、
+  platform.openai.com側での支払い方法登録が必要（docs/OPENAI.md参照）。
 - n8n初回セットアップ（オーナーアカウント作成）はブラウザでの人間の操作が必要
   （`http://localhost:5678`にアクセスして行う、Phase 2で完了済み）。
-- n8n画面での既存「Tavily API」Credential（Header Auth）のSearch/Extract両ノードへの
-  割り当てはユーザー操作が必要（Phase 3、本PRのマージ後）。
-- workflow内のCodeノードと`src/normalize.js`は手動でコードを複製する運用のため、
+- n8n画面での既存「Tavily API」「OpenAI API」Credential（いずれもHeader Auth）の
+  各ノードへの割り当てはユーザー操作が必要（本PRのマージ後）。
+- workflow内のCodeノードと`src/*.js`は手動でコードを複製する運用のため、
   変更時に一方だけ修正して`npm test`（`test/workflow-sync.test.js`）を実行し忘れると
   ズレたままコミットされ得る。同期漏れ自体は`npm test`で検出できるが、
   「テストを実行してからコミットする」運用自体は引き続き人間の注意に依存する。
+- `source_ids`／`evidence_source_ids`の`minItems: 1`がOpenAI Responses APIの
+  strictモードで実際に強制されるかは未検証（実API呼び出しを行っていないため）。
+- Phase 5（Wait/HITL）着手の要否は、実際の案件応募・顧客反応を見て判断する
+  （CLAUDE.md Mission参照）。
