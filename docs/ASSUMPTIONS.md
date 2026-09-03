@@ -62,9 +62,118 @@ Phase 1以降で認識齟齬があれば修正する。
     `docker-compose.yml`に直接記述した。`.env`（および`.env.example`）は秘密値・
     利用者固有の値（`N8N_ENCRYPTION_KEY`、APIキー）のみを扱う方針とした。
 
+13. **認証情報の種類（Phase 3、PRレビューで訂正）**
+    n8nにTavily専用の組み込みCredential型が存在しないことを、インストール済みn8nの
+    node_modules内を検索して確認した（`n8n-nodes-base`／`@n8n`配下に`tavily`関連の
+    Credential定義なし）。当初はGeneric Credential Type「HTTP Bearer Auth」を前提に
+    設計したが、PRレビューでユーザーが実際にn8n画面へ作成済みのCredentialは
+    「HTTP Header Auth」（Header Name: `Authorization`、Value: `Bearer <キー>`、
+    許可ドメイン: `api.tavily.com`）であることが判明したため、workflow・README・
+    docs/TAVILY.mdをすべて「HTTP Header Auth」前提へ訂正した
+    （`genericAuthType: httpHeaderAuth`）。ユーザーはCredentialを再作成する必要はない。
+
+14. **Extractの対象をpublic URLのみに縮小した理由（Phase 3）**
+    Phase 1時点の設計案では検索結果上位N件もExtract対象としていたが、要件2
+    （クレジット消費抑制・MVP最小化）に合わせて公式URLのみに縮小した
+    （詳細はdocs/TAVILY.md）。
+
+15. **n8n Codeノードのロジック複製（Phase 3）**
+    n8nのCodeノードは外部モジュールをimportできないため、`src/normalize.js`と
+    同一のロジックをworkflow JSON内のCodeノードにも手動で複製した。将来的な
+    ドリフト（実装の乖離）のリスクを本ドキュメントに明記し、変更時は両方を
+    同期させる運用とする。ビルドスクリプトによる自動生成は、依存関係・
+    プロセスの複雑化を避けるため今回は導入しなかった。
+
+16. **workflow検証方法（Phase 3）**
+    実際のn8n画面へのログイン（オーナーパスワード入力）は行わず、n8n CLI
+    （`import:workflow`／`export:workflow`）とNode.jsの構文チェック（`node --check`）で
+    workflow JSONの妥当性を検証した。実行中の本番コンテナに対する`execute`コマンドは
+    ポート競合するため使用せず、並列分岐の実行順序検証（下記17）や実際のワークフロー
+    実行確認は、実行中インスタンスとは別の使い捨てコンテナ、またはユーザーが
+    n8n画面でTavily API Credentialを割り当てた後に行った／行う。
+
+17. **並列分岐の実行順序とMergeノードの追加（Phase 3、PRレビューで発見・修正）**
+    Fixed Test Input → Tavily Search／Tavily Extract → 同一の後続ノード、という
+    構成について、n8n 2.36.9の実際の挙動を使い捨てコンテナで検証したところ、
+    両方の分岐の完了を待たずに後続ノードが実行され、`$('未実行のノード名')`参照で
+    `ExpressionError`となることを確認した。そのため、Search/Extractの出力を
+    Mergeノード（`mode: combine`、`combineBy: combineByPosition`、入力0/1に
+    それぞれ接続）で同期させてから後続のCodeノードへ渡す構成に修正した
+    （詳細はdocs/TAVILY.md「Search/Extractの並列実行とMergeノード」）。
+
+18. **Code同期チェックの実装方式（Phase 3、PRレビューで追加）**
+    「過剰実装にならない範囲」でCodeノードと`src/normalize.js`の同期漏れを検出する
+    手段として、ビルドスクリプトによる自動生成（ソース一本化）ではなく、
+    `test/workflow-sync.test.js`でworkflow内のjsCodeをNode.jsの`vm`モジュールで
+    実行し、`src/normalize.js`の関数と同一fixtureに対する出力を比較するテストを
+    追加した。テキスト差分比較ではなく実行結果比較にしたのは、コメント等の
+    些細な違いを誤検知せず振る舞いの一致だけを見るため。ビルドスクリプトは
+    プロセスの複雑化（生成物の管理、生成タイミングのずれ等）を避けるため
+    見送った。なお、vmの別レルムオブジェクトを`assert.deepEqual`
+  （`node:assert/strict`は`deepStrictEqual`相当）で直接比較するとプロトタイプの
+    違いで誤って不一致判定されるため、比較前にJSON往復でプレーンオブジェクト化する
+    実装上の注意点がある（テスト内にコメントで明記）。
+
+19. **「API成功だがsources空」インシデントの根本原因と修正（Phase 3、実API確認で発覚）**
+    ユーザーが実際に「株式会社サイボウズ」を対象にワークフローを実行したところ、
+    Search/Extractとも成功（search.returned_count=3、extract.status=ok）しているのに
+    `sources`が空になり「有効な出典が1件も取得できませんでした」という警告が出た。
+
+    調査の結果、`normalizeUrl`が標準の`URL`クラス（`new URL(...)`）に依存していたが、
+    **n8n Codeノードの実行サンドボックス（JS Task Runner）にはグローバルの`URL`/
+    `URLSearchParams`が存在せず**（診断用ワークフローを使い捨てコンテナで実行し、
+    `typeof URL === 'undefined'`、`new URL(...)`が`"URL is not defined"`で例外になることを
+    実機確認した）、`require('url')`等の代替も許可されていないことが根本原因と判明した。
+    normalizeUrlは例外をtry/catchでnullとして扱う設計だったため、有効なURLも含めて
+    「不正なURL」として全件除外されていた。
+
+    通常の`npm test`はNode.js上で実行されるため`URL`が普通に使え、この非互換性を
+    検知できなかった（`test/workflow-sync.test.js`のvmサンドボックスにも当初`URL`を
+    明示的に注入しており、同様に見逃していた）。実際にユーザーが提供した実データ
+    （公開情報：日経電子版・SlideShare・Wikipedia・企業公式サイトの検索結果、
+    Tavily APIの実レスポンス）を使い捨てコンテナ上の実際のn8n Codeノード
+    （JS Task Runner）で再実行し、修正前は再現、修正後は解消することを確認した。
+
+    **修正内容**：`normalizeUrl`／`getHostname`を`URL`クラスを一切使わない
+    正規表現＋文字列操作ベースの実装に書き換えた（`src/normalize.js`、workflow内Codeノード
+    の両方）。既存の`normalizeUrl`のテストケース（大文字ホスト・トラッキングパラメータ・
+    フラグメント・末尾スラッシュの正規化）はすべて同じ期待値のまま通過することを確認済み。
+
+    **再発防止**：`test/workflow-sync.test.js`のvmサンドボックスから`URL`の注入を削除し
+    （実際のn8nサンドボックスに合わせた）、`src/normalize.js`とworkflow内Codeノードの
+    ソーステキストに`new URL(`／`URLSearchParams`／`require(`／`fetch(`が含まれていないことを
+    検査する専用テストを追加した。このテストは、修正前のコードに対しては実際に失敗する
+    （`new URL(...)が使われています`）ことを確認済み。
+
+    実データ（サイボウズの検索結果、公開情報）は`fixtures/tavily/search_ok_real_incident.json`
+    ／`extract_ok_real_incident.json`としてそのまま回帰テストのfixtureに追加した
+    （認証情報・APIキーは含まれていない公開のWeb検索結果のため）。
+
+20. **修正後の実API疎通確認（Phase 3、ユーザーによる再検証で成功）**
+    上記19の修正後、ユーザーが改めてn8n画面で「株式会社サイボウズ」
+    （`https://cybozu.co.jp/`）を対象に実行し、以下を確認した。
+
+    - Search: `status=ok`、`returned_count=3`
+    - Extract: `status=ok`、`failed_urls=[]`
+    - `sources`：4件（`official` 2件、`external` 2件）
+    - `warnings`：`[]`
+    - URL正規化・重複排除・`source_type`（official/external）分類が正常に機能
+    - 出力にAPIキー・認証情報は含まれていない
+
+    公式トップページ由来のsourceで`title`が`null`になる点（Extract結果はページ本文
+    のみを持ち、`title`フィールドが無いためbuildResearchOutput側で常に`null`を
+    設定する仕様）は許容し、追加修正は行わない。これによりPhase 3の受入条件
+    （docs/REQUIREMENTS.md）を実データで満たすことを確認できた。
+
 ## 未解決事項（人間の判断が必要）
 
 - OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 4で決定）。
 - Tavily API・OpenAI APIの利用契約・料金プランの確認は未実施（ユーザー側で確認が必要）。
 - n8n初回セットアップ（オーナーアカウント作成）はブラウザでの人間の操作が必要
-  （`http://localhost:5678`にアクセスして行う）。
+  （`http://localhost:5678`にアクセスして行う、Phase 2で完了済み）。
+- n8n画面での既存「Tavily API」Credential（Header Auth）のSearch/Extract両ノードへの
+  割り当てはユーザー操作が必要（Phase 3、本PRのマージ後）。
+- workflow内のCodeノードと`src/normalize.js`は手動でコードを複製する運用のため、
+  変更時に一方だけ修正して`npm test`（`test/workflow-sync.test.js`）を実行し忘れると
+  ズレたままコミットされ得る。同期漏れ自体は`npm test`で検出できるが、
+  「テストを実行してからコミットする」運用自体は引き続き人間の注意に依存する。

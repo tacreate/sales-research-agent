@@ -6,9 +6,10 @@ BtoB営業担当者が「企業名・公式URL・自社サービス」を入力�
 
 ## ステータス
 
-現在 **Phase 2（n8nローカル実行環境）** に着手中。Phase 1（Structured Output契約）は完了。
-n8nはDocker Composeでローカル起動できるようになったが、OpenAI／Tavilyへの実通信、
-n8nワークフロー本体の実装はまだ行っていない。
+現在 **Phase 3（Tavily情報取得）** に着手中。Phase 1（Structured Output契約）・
+Phase 2（n8nローカル実行環境）は完了。n8nワークフローにTavily Search/Extract部分を
+実装したが、認証情報（Tavily API）が未割り当てのため実際のAPI呼び出しはまだ行っていない。
+OpenAI連携・Form Trigger・Human-in-the-loop・レポート生成はまだ実装していない。
 
 ## スコープ（MVP）
 
@@ -38,6 +39,7 @@ n8nワークフロー本体の実装はまだ行っていない。
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 開発フェーズ計画（Phase 0〜6）
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — 環境確認結果
 - [docs/DOCKER.md](docs/DOCKER.md) — n8nイメージバージョン選定・Apple silicon対応確認・構成方針
+- [docs/TAVILY.md](docs/TAVILY.md) — Tavily Search/Extract API仕様、認証方式、呼び出し上限
 - [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) — 各フェーズで行った仮定の記録
 
 ## Structured Output契約の検証（Phase 1）
@@ -59,10 +61,61 @@ npm test
   - 仮説の根拠（`evidence_source_ids`）が1件以上あるか（空配列を拒否）
 - fixture 7種（正常系1・異常系6）で上記を検証（`fixtures/`）
 
+`src/normalize.js`（Phase 3、Tavily結果の正規化・重複排除・構造化）は
+`fixtures/tavily/`の固定fixture（正常系・検索結果0件・検索失敗・Extract失敗等、
+Search/Extractの主要な組み合わせを網羅）で検証する。n8nワークフロー内のCodeノードは
+同一ロジックを手動で複製しているため（n8n Codeノードは外部モジュールをimportできないため）、
+`test/workflow-sync.test.js`でworkflow側のロジックを実際に実行し、
+`src/normalize.js`と同じfixtureに対して同じ出力になることを自動検証する
+（手動同期の漏れを検出する）。
+
 ## CI
 
 `.github/workflows/test.yml`により、push・PR作成時にGitHub Actions上で
 Node.js（`lts/*`）で`npm ci` → `npm test`を自動実行する。外部API・n8n・Dockerは使用しない。
+
+## n8nワークフロー：Tavily情報取得（Phase 3）
+
+`workflows/phase3-tavily-research.json`に、Manual Trigger〜Tavily Search／Extract〜
+Merge〜正規化・構造化までのPhase 3部分を実装している。OpenAI連携・Form Trigger・
+Human-in-the-loop・レポート生成はまだ含まれていない。
+
+### workflowのインポート
+
+n8n画面（[http://localhost:5678](http://localhost:5678)）の「Import from File」から
+`workflows/phase3-tavily-research.json`を読み込む。認証情報は未設定の状態でインポートされる。
+
+### 既存のTavily API認証情報の割り当て（ユーザー操作）
+
+Tavily APIキー用のCredential「Tavily API」（Header Auth、Header Name: `Authorization`、
+Value: `Bearer <Tavilyキー>`、許可ドメイン: `api.tavily.com`）は**作成済み**の前提。
+新規作成やAPIキーの再取得は不要。
+
+1. 「Tavily Search」ノードを開き、「Credential for Header Auth」欄で
+   既存の**「Tavily API」**を選択する
+2. 「Tavily Extract」ノードでも同様に、既存の**「Tavily API」**を選択する
+3. 「Test workflow」で実行する（初回実行でTavily APIのクレジットが消費される点に注意）
+
+APIキー自体はn8nのCredentialとして暗号化保存されるのみで、リポジトリには一切含まれない。
+
+### 出力の構造（概要）
+
+`Normalize, Dedupe & Structure Output`ノードの出力：
+
+```json
+{
+  "input": { "company_name": "...", "official_url": "...", "research_purpose": "..." },
+  "search": { "status": "ok|empty|error", "query": "...", "max_results": 3, "returned_count": 0 },
+  "extract": { "status": "ok|empty|error", "requested_url": "...", "failed_urls": [] },
+  "sources": [
+    { "id": "src1", "url": "...", "normalized_url": "...", "title": "...", "snippet": "...", "source_type": "official|external", "origin": ["search","extract"] }
+  ],
+  "warnings": ["..."],
+  "generated_at": "2026-09-01T00:00:00.000Z"
+}
+```
+
+詳細な仕様・API呼び出し上限は[docs/TAVILY.md](docs/TAVILY.md)を参照。
 
 ## n8nローカル実行環境（Phase 2）
 
@@ -135,17 +188,31 @@ sales-research-agent/
 │   ├── hypothesis_missing_evidence.json
 │   ├── duplicate_source_ids.json
 │   ├── unknown_field.json
-│   └── invalid_evidence_reference.json
+│   ├── invalid_evidence_reference.json
+│   └── tavily/
+│       ├── input.json
+│       ├── search_ok.json
+│       ├── search_empty.json
+│       ├── search_error.json
+│       ├── extract_ok.json
+│       ├── extract_error.json
+│       └── extract_failed_results.json
+├── workflows/
+│   └── phase3-tavily-research.json
 ├── src/
-│   └── validate.js
+│   ├── validate.js
+│   └── normalize.js
 ├── test/
-│   └── validate.test.js
+│   ├── validate.test.js
+│   ├── normalize.test.js
+│   └── workflow-sync.test.js
 ├── docs/
 │   ├── REQUIREMENTS.md
 │   ├── ARCHITECTURE.md
 │   ├── ROADMAP.md
 │   ├── ENVIRONMENT.md
 │   ├── DOCKER.md
+│   ├── TAVILY.md
 │   └── ASSUMPTIONS.md
 └── .github/
     ├── workflows/
@@ -156,4 +223,4 @@ sales-research-agent/
     └── pull_request_template.md
 ```
 
-（n8nワークフロー定義（`workflows/`等）はPhase 3以降で追加予定。）
+（OpenAI連携・Human-in-the-loop・レポート生成部分はPhase 4以降で追加予定。）

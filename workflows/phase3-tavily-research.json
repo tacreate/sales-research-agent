@@ -1,0 +1,189 @@
+{
+  "id": "4e794051-b04c-4954-b212-ee975385ad7e",
+  "name": "Phase 3: Tavily情報取得",
+  "nodes": [
+    {
+      "id": "724a8210-636c-475b-aa82-13757e8efa3c",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "0220ba3c-4be1-4f43-b002-03fa248ed247",
+      "name": "Fixed Test Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        80,
+        0
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1a1a1a1-0000-4000-8000-000000000001",
+              "name": "company_name",
+              "type": "string",
+              "value": "Example Corp"
+            },
+            {
+              "id": "a1a1a1a1-0000-4000-8000-000000000002",
+              "name": "official_url",
+              "type": "string",
+              "value": "https://example.com/"
+            },
+            {
+              "id": "a1a1a1a1-0000-4000-8000-000000000003",
+              "name": "research_purpose",
+              "type": "string",
+              "value": "導入検討先の事業内容と最近の動きを把握する（架空データ、固定テスト入力）"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "18390e7a-73df-4153-9a66-d7c2239082c7",
+      "name": "Tavily Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        -80
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.company_name + \" 会社概要\", search_depth: \"basic\", max_results: 3 }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "64eecc78-4373-4bb0-9fff-db6cc8658356",
+      "name": "Tavily Extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        80
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/extract",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ urls: [$json.official_url], extract_depth: \"basic\" }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "b3f1c9a0-1a2b-4c3d-9e4f-5a6b7c8d9e0f",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        560,
+        0
+      ],
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      }
+    },
+    {
+      "id": "26313fc1-64c3-4219-b529-2b5d3677bf04",
+      "name": "Normalize, Dedupe & Structure Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// このロジックは src/normalize.js と同一内容を手動で複製している（n8n Codeノードは\n// 外部モジュールをimportできないため）。変更時は両方を同期させること。\n\nconst TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref'];\n\n// http(s) URLのみを対象とする単純なパーサー。\n// 注意：n8nのCodeノードのサンドボックス（JS Task Runner）にはグローバルの`URL`/\n// `URLSearchParams`が存在せず、`require('url')`も許可されていないため、標準の\n// `URL`クラスを一切使わずに正規表現と文字列操作のみで実装している。\nconst ABSOLUTE_HTTP_URL_PATTERN = /^(https?):\\/\\/([^/?#:]+)(?::(\\d+))?([^?#]*)(?:\\?([^#]*))?(?:#.*)?$/i;\n\nfunction parseHttpUrl(rawUrl) {\n  if (!rawUrl || typeof rawUrl !== 'string') return null;\n  const match = ABSOLUTE_HTTP_URL_PATTERN.exec(rawUrl.trim());\n  if (!match) return null;\n  const [, protocol, hostname, port, path, query] = match;\n  return { protocol: protocol.toLowerCase(), hostname, port: port || '', pathname: path || '', query: query || '' };\n}\n\nfunction decodeQueryKey(rawKey) {\n  try {\n    return decodeURIComponent(rawKey.replace(/\\+/g, ' '));\n  } catch (e) {\n    return rawKey;\n  }\n}\n\nfunction normalizeUrl(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  if (!parsed) return null;\n\n  const hostname = parsed.hostname.toLowerCase();\n  const port = (parsed.protocol === 'http' && parsed.port === '80') || (parsed.protocol === 'https' && parsed.port === '443')\n    ? ''\n    : parsed.port;\n\n  let pathname = parsed.pathname || '/';\n  if (!pathname.startsWith('/')) pathname = `/${pathname}`;\n  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);\n\n  const params = [];\n  for (const pair of parsed.query ? parsed.query.split('&') : []) {\n    if (!pair) continue;\n    const eqIdx = pair.indexOf('=');\n    const rawKey = eqIdx === -1 ? pair : pair.slice(0, eqIdx);\n    const rawValue = eqIdx === -1 ? '' : pair.slice(eqIdx + 1);\n    if (TRACKING_PARAMS.includes(decodeQueryKey(rawKey))) continue;\n    params.push([rawKey, rawValue]);\n  }\n  params.sort((a, b) => {\n    const ka = decodeQueryKey(a[0]);\n    const kb = decodeQueryKey(b[0]);\n    return ka < kb ? -1 : ka > kb ? 1 : 0;\n  });\n  const query = params.map(([k, v]) => (v ? `${k}=${v}` : k)).join('&');\n\n  return `${parsed.protocol}://${hostname}${port ? `:${port}` : ''}${pathname}${query ? `?${query}` : ''}`;\n}\n\nfunction getHostname(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  return parsed ? parsed.hostname.toLowerCase() : null;\n}\n\nfunction classifySourceType(url, officialUrl) {\n  const h1 = getHostname(url);\n  const h2 = getHostname(officialUrl);\n  if (!h1 || !h2) return 'external';\n  return h1 === h2 ? 'official' : 'external';\n}\n\nfunction dedupeSources(rawSources) {\n  const map = new Map();\n  const order = [];\n  let counter = 0;\n  for (const s of rawSources) {\n    const normalized = normalizeUrl(s.url);\n    if (!normalized) continue;\n    if (!map.has(normalized)) {\n      counter += 1;\n      map.set(normalized, {\n        id: 'src' + counter,\n        url: s.url,\n        normalized_url: normalized,\n        title: s.title || null,\n        snippet: s.snippet || null,\n        source_type: s.source_type,\n        origin: [s.origin],\n      });\n      order.push(normalized);\n    } else {\n      const entry = map.get(normalized);\n      if (!entry.title && s.title) entry.title = s.title;\n      if (!entry.snippet && s.snippet) entry.snippet = s.snippet;\n      if (!entry.origin.includes(s.origin)) entry.origin.push(s.origin);\n    }\n  }\n  return order.map((k) => map.get(k));\n}\n\nfunction extractErrorMessage(err) {\n  if (typeof err === 'string') return err;\n  if (err && typeof err === 'object') return err.message || JSON.stringify(err);\n  return 'unknown error';\n}\n\nfunction buildSearchSummary(searchItem, query, maxResults) {\n  if (searchItem && searchItem.error) {\n    return { status: 'error', query, max_results: maxResults, returned_count: 0, error_message: extractErrorMessage(searchItem.error) };\n  }\n  const results = Array.isArray(searchItem && searchItem.results) ? searchItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', query, max_results: maxResults, returned_count: 0 };\n  }\n  return { status: 'ok', query, max_results: maxResults, returned_count: results.length };\n}\n\nfunction buildExtractSummary(extractItem, requestedUrl) {\n  if (extractItem && extractItem.error) {\n    return { status: 'error', requested_url: requestedUrl, error_message: extractErrorMessage(extractItem.error), failed_urls: [] };\n  }\n  const failed = Array.isArray(extractItem && extractItem.failed_results) ? extractItem.failed_results : [];\n  if (failed.length > 0) {\n    return {\n      status: 'error',\n      requested_url: requestedUrl,\n      error_message: failed.map((f) => f.url + ': ' + f.error).join('; '),\n      failed_urls: failed.map((f) => f.url),\n    };\n  }\n  const results = Array.isArray(extractItem && extractItem.results) ? extractItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', requested_url: requestedUrl, failed_urls: [] };\n  }\n  return { status: 'ok', requested_url: requestedUrl, failed_urls: [] };\n}\n\nfunction buildResearchOutput({ input, searchItem, extractItem }) {\n  const query = input.company_name + ' 会社概要';\n  const maxResults = 3;\n  const search = buildSearchSummary(searchItem, query, maxResults);\n  const extract = buildExtractSummary(extractItem, input.official_url);\n\n  const rawSources = [];\n\n  if (extract.status === 'ok') {\n    for (const r of extractItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: null,\n        snippet: r.raw_content ? String(r.raw_content).slice(0, 500) : null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'extract',\n      });\n    }\n  }\n\n  if (search.status === 'ok') {\n    for (const r of searchItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: r.title || null,\n        snippet: r.content || null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'search',\n      });\n    }\n  }\n\n  const sources = dedupeSources(rawSources);\n\n  const warnings = [];\n  if (search.status === 'error') warnings.push('Tavily Search呼び出しに失敗しました: ' + search.error_message);\n  if (search.status === 'empty') warnings.push('Tavily Searchの結果が0件でした。');\n  if (extract.status === 'error') warnings.push('Tavily Extractに失敗しました: ' + extract.error_message);\n  if (sources.length === 0) warnings.push('有効な出典が1件も取得できませんでした。');\n\n  return {\n    input,\n    search,\n    extract,\n    sources,\n    warnings,\n    generated_at: new Date().toISOString(),\n  };\n}\n\nconst input = $('Fixed Test Input').first().json;\nconst searchItem = $('Tavily Search').first().json;\nconst extractItem = $('Tavily Extract').first().json;\n\nreturn [{ json: buildResearchOutput({ input, searchItem, extractItem }) }];"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fixed Test Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fixed Test Input": {
+      "main": [
+        [
+          {
+            "node": "Tavily Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tavily Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Search": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Extract": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Normalize, Dedupe & Structure Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

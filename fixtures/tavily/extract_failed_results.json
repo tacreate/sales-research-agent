@@ -1,0 +1,12 @@
+{
+  "results": [],
+  "failed_results": [
+    {
+      "url": "https://example.com/",
+      "error": "Timeout while fetching page（架空のエラー、テスト用）"
+    }
+  ],
+  "response_time": 60.0,
+  "usage": { "credits": 0 },
+  "request_id": "req_example_0002"
+}

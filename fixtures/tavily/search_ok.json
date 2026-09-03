@@ -1,0 +1,25 @@
+{
+  "query": "Example Corp 会社概要",
+  "results": [
+    {
+      "title": "Example Corp について（架空データ）",
+      "url": "https://example.com/about/",
+      "content": "Example Corpは会計業務の自動化サービスを提供する架空のBtoB SaaS企業です。",
+      "score": 0.91
+    },
+    {
+      "title": "Example Corp、新機能を発表（架空のニュース）",
+      "url": "https://news.example-media.test/2026/08/example-corp-release?utm_source=twitter&utm_medium=social",
+      "content": "架空の企業Example Corpが新機能を発表したという想定のニュース記事。",
+      "score": 0.77
+    },
+    {
+      "title": "Example Corp について（架空データ、末尾スラッシュなし）",
+      "url": "https://example.com/about",
+      "content": "会社概要ページの重複URL表記（末尾スラッシュ違い）のテスト用。",
+      "score": 0.65
+    }
+  ],
+  "response_time": 0.42,
+  "usage": { "requests": 1 }
+}
