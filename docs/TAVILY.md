@@ -22,7 +22,7 @@
 
 ```json
 {
-  "query": "<企業名> 会社概要",
+  "query": "<企業名> 会社概要 最新ニュース",
   "search_depth": "basic",
   "max_results": 3
 }
@@ -30,6 +30,7 @@
 
 | パラメータ | 採用値 | 理由 |
 |---|---|---|
+| `query` | `"<企業名> 会社概要 最新ニュース"` | Phase 4でLLMが企業概要と最近の動きの両方を分析できるよう、呼び出し回数（1回）は変えずクエリ内容のみ変更した |
 | `search_depth` | `basic` | `advanced`より消費クレジットが少ないため（要件2） |
 | `max_results` | `3` | MVPとして必要最小限の件数に抑え、不要なクレジット消費を避ける |
 
@@ -98,7 +99,7 @@ n8n 2.36.9で実際にどう実行されるかを、実行中の本番コンテ�
   Codeノードへ接続したところ、両方のSetノードの完了を待ってからCodeノードが実行され、
   `$('Set A')`／`$('Set B')`とも正しく解決されることを確認した。
 
-この結果を踏まえ、`workflows/phase3-tavily-research.json`では
+この結果を踏まえ、`workflows/sales-research-agent.json`では
 **Tavily Search → Merge(入力0)、Tavily Extract → Merge(入力1)、Merge → Normalize,
 Dedupe & Structure Output** という構成にした。Mergeノード自身の出力内容
 （フィールドの統合結果）は使用せず、後続のCodeノードは従来どおり

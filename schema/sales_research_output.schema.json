@@ -14,7 +14,11 @@
         "properties": {
           "id": { "type": "string", "description": "出典の一意識別子。source_ids/evidence_source_idsから参照される。" },
           "url": { "type": "string" },
-          "title": { "type": "string" }
+          "title": { "type": ["string", "null"], "description": "Extract由来などページタイトルを持たない出典ではnullを許容する（Phase4で判明した実データとの矛盾を解消）。" },
+          "normalized_url": { "type": "string", "description": "Phase3の正規化・重複排除で使う正規化後URL（省略可、Phase4以降の出力に含まれる）。" },
+          "snippet": { "type": ["string", "null"], "description": "本文の抜粋（省略可）。" },
+          "source_type": { "type": "string", "enum": ["official", "external"], "description": "公式情報か外部情報かの区別（省略可）。" },
+          "origin": { "type": "array", "items": { "type": "string" }, "description": "取得元（search/extract、複数可、省略可）。" }
         },
         "required": ["id", "url", "title"]
       }

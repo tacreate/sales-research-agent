@@ -1,0 +1,40 @@
+{
+  "input": {
+    "company_name": "Example Corp",
+    "official_url": "https://example.com/",
+    "research_purpose": "導入検討先の事業内容と最近の動きを把握する（架空データ、固定テスト入力）"
+  },
+  "search": {
+    "status": "ok",
+    "query": "Example Corp 会社概要 最新ニュース",
+    "max_results": 3,
+    "returned_count": 2
+  },
+  "extract": {
+    "status": "ok",
+    "requested_url": "https://example.com/",
+    "failed_urls": []
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "url": "https://example.com/",
+      "normalized_url": "https://example.com/",
+      "title": null,
+      "snippet": "Example Corp（架空データ）: 会計業務の自動化SaaSを提供。東京拠点。従業員数50名規模。",
+      "source_type": "official",
+      "origin": ["extract"]
+    },
+    {
+      "id": "src2",
+      "url": "https://news.example-media.test/2026/08/example-corp-release",
+      "normalized_url": "https://news.example-media.test/2026/08/example-corp-release",
+      "title": "Example Corp、新機能を発表（架空のニュース）",
+      "snippet": "架空の企業Example Corpが新機能を発表したという想定のニュース記事。",
+      "source_type": "external",
+      "origin": ["search"]
+    }
+  ],
+  "warnings": [],
+  "generated_at": "2026-09-01T00:00:00.000Z"
+}

@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Phase4LlmAnalysisOutput",
+  "description": "OpenAI Responses API（text.format: json_schema, strict: true）へ送信するLLM生成部分のみのSchema。company_name/official_url/sourcesはPhase3の確定情報をそのまま使うためLLMには生成させない。事実(business_overview/recent_news/org_signals)はsource_ids、仮説(proposal_hypotheses)はevidence_source_idsをそれぞれminItems:1で必須とする。取得できない最近の動きはrecent_newsに含めずuncertaintiesへ記録する（プロンプト指示）。全objectはadditionalProperties:falseとし、定義した全プロパティをrequiredにする。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "company_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "business_overview": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "string" },
+            "source_ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            }
+          },
+          "required": ["text", "source_ids"]
+        },
+        "recent_news": {
+          "type": "array",
+          "description": "出典から裏付けが取れる最近の動きのみ。無ければ空配列にし、uncertaintiesへ理由を記録する。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "summary": { "type": "string" },
+              "source_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string" }
+              }
+            },
+            "required": ["summary", "source_ids"]
+          }
+        },
+        "org_signals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "signal": { "type": "string" },
+              "source_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string" }
+              }
+            },
+            "required": ["signal", "source_ids"]
+          }
+        }
+      },
+      "required": ["business_overview", "recent_news", "org_signals"]
+    },
+    "proposal_hypotheses": {
+      "type": "array",
+      "description": "offering（提案する商品・サービス）との適合理由をrationaleに含める。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "hypothesis": { "type": "string" },
+          "rationale": { "type": "string" },
+          "evidence_source_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["hypothesis", "rationale", "evidence_source_ids"]
+      }
+    },
+    "discovery_questions": {
+      "type": "array",
+      "description": "offeringを前提に商談で確認すべき質問。出典は不要。",
+      "items": { "type": "string" }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": { "type": "string" },
+          "reason": { "type": "string" }
+        },
+        "required": ["note", "reason"]
+      }
+    }
+  },
+  "required": ["company_profile", "proposal_hypotheses", "discovery_questions", "uncertainties"]
+}

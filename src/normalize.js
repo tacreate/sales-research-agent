@@ -2,7 +2,7 @@
  * Tavily Search/Extractの結果を正規化・重複排除し、後続LLM向けの構造化JSONへ整形する。
  *
  * 注意：このファイルのロジックは、n8nワークフロー
- * （workflows/phase3-tavily-research.json の "Normalize, Dedupe & Structure Output"
+ * （workflows/sales-research-agent.json の "Normalize, Dedupe & Structure Output"
  * Codeノード）にも同一内容を手動で複製している。n8n Codeノードは外部モジュールを
  * importできないため、変更時は両方を同期させること（docs/ASSUMPTIONS.md参照）。
  */
@@ -160,7 +160,7 @@ export function buildExtractSummary(extractItem, requestedUrl) {
  * extractItem: Tavily Extract APIレスポンス、またはn8nのエラーitem（{error: ...}）
  */
 export function buildResearchOutput({ input, searchItem, extractItem }) {
-  const query = `${input.company_name} 会社概要`;
+  const query = `${input.company_name} 会社概要 最新ニュース`;
   const maxResults = 3;
   const search = buildSearchSummary(searchItem, query, maxResults);
   const extract = buildExtractSummary(extractItem, input.official_url);

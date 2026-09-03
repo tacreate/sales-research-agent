@@ -1,0 +1,21 @@
+{
+  "id": "resp_refusal_0001",
+  "object": "response",
+  "status": "completed",
+  "model": "gpt-5.6-terra",
+  "output": [
+    {
+      "id": "msg_refusal_0001",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "refusal",
+          "refusal": "このリクエストの内容には対応できません（架空のrefusal例）。"
+        }
+      ]
+    }
+  ],
+  "usage": { "input_tokens": 1200, "output_tokens": 20, "total_tokens": 1220 }
+}

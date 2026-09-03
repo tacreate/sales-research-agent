@@ -5,11 +5,15 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { buildResearchOutput } from '../src/normalize.js';
+import { buildOpenAiRequestBody } from '../src/openai_request.js';
+import { assembleReport } from '../src/assemble_report.js';
+import { renderMarkdown } from '../src/render_markdown.js';
 
 /**
  * n8nのCodeノードは外部モジュールをimportできないため、workflow JSON内に
- * src/normalize.jsと同一のロジックを手動で複製している（docs/ASSUMPTIONS.md参照）。
- * このテストは、両者が実際に同じ入力に対して同じ出力を返すことを実行レベルで確認し、
+ * src/normalize.js・src/openai_request.js・src/assemble_report.js・src/render_markdown.jsと
+ * 同一のロジックを手動で複製している（docs/ASSUMPTIONS.md参照）。
+ * このテストは、それぞれが実際に同じ入力に対して同じ出力を返すことを実行レベルで確認し、
  * 手動同期の漏れ（コピー忘れ・修正漏れ）を検出する。
  *
  * テキスト差分比較（diff）ではなく実行結果の比較にしているのは、コメントや
@@ -19,24 +23,35 @@ import { buildResearchOutput } from '../src/normalize.js';
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKFLOW_PATH = path.join(__dirname, '..', 'workflows', 'phase3-tavily-research.json');
+const WORKFLOW_PATH = path.join(__dirname, '..', 'workflows', 'sales-research-agent.json');
 const TAVILY_FIXTURES_DIR = path.join(__dirname, '..', 'fixtures', 'tavily');
+const OPENAI_FIXTURES_DIR = path.join(__dirname, '..', 'fixtures', 'openai');
 
 function loadTavilyFixture(name) {
   return JSON.parse(fs.readFileSync(path.join(TAVILY_FIXTURES_DIR, name), 'utf-8'));
 }
 
-function extractCodeNodeJs(workflow) {
-  const codeNode = workflow.nodes.find((n) => n.type === 'n8n-nodes-base.code');
-  if (!codeNode) throw new Error('workflow内にCodeノードが見つかりません');
-  return codeNode.parameters.jsCode;
+function loadOpenAiFixture(name) {
+  return JSON.parse(fs.readFileSync(path.join(OPENAI_FIXTURES_DIR, name), 'utf-8'));
+}
+
+function loadWorkflow() {
+  return JSON.parse(fs.readFileSync(WORKFLOW_PATH, 'utf-8'));
+}
+
+function findCodeNode(workflow, name) {
+  const node = workflow.nodes.find((n) => n.type === 'n8n-nodes-base.code' && n.name === name);
+  if (!node) throw new Error(`workflow内にCodeノード"${name}"が見つかりません`);
+  return node.parameters.jsCode;
 }
 
 /**
- * jsCode末尾のn8nノード参照部分（$('Fixed Test Input')等）はvmサンドボックス内では
- * 動作しないため、関数宣言部分のみを取り出してbuildResearchOutputを呼び出せるようにする。
+ * jsCode末尾のn8nノード参照部分（$('...')等）はvmサンドボックス内では動作しないため、
+ * `const input = $('Fixed Test Input')`より前の関数宣言部分のみを取り出して実行する。
+ * 実際のn8n Codeノードのサンドボックス（JS Task Runner）にはURL等のWeb APIが
+ * 存在しないため、vmサンドボックスにもここでは意図的に何も注入しない。
  */
-function loadBuildResearchOutputFromWorkflowCode(jsCode) {
+function loadFunctionsFromWorkflowCode(jsCode, functionNames) {
   const marker = "const input = $('Fixed Test Input')";
   const idx = jsCode.indexOf(marker);
   if (idx === -1) {
@@ -44,23 +59,27 @@ function loadBuildResearchOutputFromWorkflowCode(jsCode) {
   }
   const functionsOnly = jsCode.slice(0, idx);
 
-  // 実際のn8n Codeノードのサンドボックス（JS Task Runner）にはURL等のWeb APIが
-  // 存在しないため、vmサンドボックスにもここでは意図的に何も注入しない
-  // （src/normalize.jsがURL等に依存していないことを、この実行自体でも間接的に検証する）
   const context = {};
   vm.createContext(context);
-  vm.runInContext(`${functionsOnly}\nthis.__buildResearchOutput = buildResearchOutput;`, context);
+  const exposeStatements = functionNames.map((name) => `this.__${name} = ${name};`).join('\n');
+  vm.runInContext(`${functionsOnly}\n${exposeStatements}`, context);
 
-  if (typeof context.__buildResearchOutput !== 'function') {
-    throw new Error('workflow内のjsCodeからbuildResearchOutput関数を取り出せませんでした');
+  const result = {};
+  for (const name of functionNames) {
+    if (typeof context[`__${name}`] !== 'function') {
+      throw new Error(`workflow内のjsCodeから${name}関数を取り出せませんでした`);
+    }
+    result[name] = context[`__${name}`];
   }
-  return context.__buildResearchOutput;
+  return result;
 }
 
-test('workflowのCodeノードとsrc/normalize.jsは、同一fixtureに対して同一の出力を返す（手動同期チェック）', () => {
-  const workflow = JSON.parse(fs.readFileSync(WORKFLOW_PATH, 'utf-8'));
-  const jsCode = extractCodeNodeJs(workflow);
-  const workflowBuildResearchOutput = loadBuildResearchOutputFromWorkflowCode(jsCode);
+test('workflowのNormalizeノードとsrc/normalize.jsは、同一fixtureに対して同一の出力を返す（手動同期チェック）', () => {
+  const workflow = loadWorkflow();
+  const jsCode = findCodeNode(workflow, 'Normalize, Dedupe & Structure Output');
+  const { buildResearchOutput: workflowBuildResearchOutput } = loadFunctionsFromWorkflowCode(jsCode, [
+    'buildResearchOutput',
+  ]);
 
   const input = loadTavilyFixture('input.json');
   const cases = [
@@ -93,6 +112,60 @@ test('workflowのCodeノードとsrc/normalize.jsは、同一fixtureに対して
   }
 });
 
+test('workflowのBuild OpenAI RequestノードとSRC/openai_request.jsは、同一fixtureに対して同一のリクエストボディを返す（手動同期チェック）', () => {
+  const workflow = loadWorkflow();
+  const jsCode = findCodeNode(workflow, 'Build OpenAI Request');
+  const { buildOpenAiRequestBody: workflowBuild } = loadFunctionsFromWorkflowCode(jsCode, ['buildOpenAiRequestBody']);
+
+  const input = loadOpenAiFixture('input.json');
+  const tavilyOutput = loadOpenAiFixture('tavily_output_ok.json');
+
+  const fromModule = buildOpenAiRequestBody({ input, sources: tavilyOutput.sources });
+  const fromWorkflow = JSON.parse(JSON.stringify(workflowBuild({ input, sources: tavilyOutput.sources })));
+
+  assert.deepEqual(fromWorkflow, fromModule);
+});
+
+test('workflowのValidate & Assemble ReportノードとSRC/assemble_report.js・render_markdown.jsは、同一fixtureに対して同一の出力を返す（手動同期チェック）', () => {
+  const workflow = loadWorkflow();
+  const jsCode = findCodeNode(workflow, 'Validate & Assemble Report');
+  const { assembleReport: workflowAssemble, renderMarkdown: workflowRender } = loadFunctionsFromWorkflowCode(jsCode, [
+    'assembleReport',
+    'renderMarkdown',
+  ]);
+
+  const input = loadOpenAiFixture('input.json');
+  const tavilyOutput = loadOpenAiFixture('tavily_output_ok.json');
+  const responseFixtures = [
+    'response_ok.json',
+    'response_refusal.json',
+    'response_incomplete.json',
+    'response_empty.json',
+    'response_api_error.json',
+    'response_invalid_schema.json',
+    'response_invalid_reference.json',
+  ];
+
+  for (const fixtureName of responseFixtures) {
+    const openAiResponse = loadOpenAiFixture(fixtureName);
+
+    const fromModule = assembleReport({ input, tavilyOutput, openAiResponse });
+    const fromWorkflow = JSON.parse(JSON.stringify(workflowAssemble({ input, tavilyOutput, openAiResponse })));
+
+    const { generated_at: _a, ...moduleMetaRest } = fromModule.meta;
+    const { generated_at: _b, ...workflowMetaRest } = fromWorkflow.meta;
+
+    assert.deepEqual(workflowMetaRest, moduleMetaRest, `${fixtureName}: metaが一致しません（同期漏れの可能性）`);
+    assert.deepEqual(fromWorkflow.report, fromModule.report, `${fixtureName}: reportが一致しません（同期漏れの可能性）`);
+
+    // Markdown生成は時刻依存(generated_at)があるため、同一のmeta/reportを両実装に
+    // 与えて文字列が一致することを確認する（実行時刻の違いによる誤検知を避ける）。
+    const markdownFromModule = renderMarkdown(fromModule);
+    const markdownFromWorkflow = workflowRender(fromModule);
+    assert.equal(markdownFromWorkflow, markdownFromModule, `${fixtureName}: Markdown出力が一致しません（同期漏れの可能性）`);
+  }
+});
+
 /**
  * PR #6の実API確認で発覚したインシデントの再発防止テスト。
  *
@@ -101,6 +174,7 @@ test('workflowのCodeノードとsrc/normalize.jsは、同一fixtureに対して
  * 通常の`npm test`はNode.js上で実行されるため`URL`が普通に使えてしまい、
  * この非互換性を検知できなかった。そのため、ソースコードのテキストを直接検査し、
  * n8n Codeノードのサンドボックスで使えないAPIを使用していないことを確認する。
+ * ajv等の外部モジュールへの依存（require/importで解決できない）も同様に検査する。
  */
 /**
  * コード中のコメント（`/** ... *\/`ブロックコメント、および行頭が`//`の行）を除去する。
@@ -115,28 +189,34 @@ function stripComments(code) {
     .join('\n');
 }
 
-test('src/normalize.jsとworkflow内Codeノードは、n8n Codeノードのサンドボックスで未提供のAPI（URL/require等）を使用していない', () => {
-  const normalizeSource = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'normalize.js'), 'utf-8'));
-  const workflow = JSON.parse(fs.readFileSync(WORKFLOW_PATH, 'utf-8'));
-  const jsCode = stripComments(extractCodeNodeJs(workflow));
+test('src配下のロジックとworkflow内の全Codeノードは、n8n Codeノードのサンドボックスで未提供のAPI（URL/require/ajv等）を使用していない', () => {
+  const workflow = loadWorkflow();
+  const srcFiles = ['normalize.js', 'openai_request.js', 'assemble_report.js', 'render_markdown.js'];
+  const codeNodeNames = ['Normalize, Dedupe & Structure Output', 'Build OpenAI Request', 'Validate & Assemble Report'];
 
   const forbiddenPatterns = [
     { pattern: /\bnew\s+URL\s*\(/, label: 'new URL(...)' },
     { pattern: /\bURLSearchParams\b/, label: 'URLSearchParams' },
     { pattern: /\brequire\s*\(/, label: 'require(...)' },
     { pattern: /\bfetch\s*\(/, label: 'fetch(...)' },
+    { pattern: /from\s+['"]ajv['"]/, label: "import ... from 'ajv'" },
   ];
 
-  for (const { pattern, label } of forbiddenPatterns) {
-    assert.equal(
-      pattern.test(normalizeSource),
-      false,
-      `src/normalize.jsで${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
-    );
-    assert.equal(
-      pattern.test(jsCode),
-      false,
-      `workflow内のCodeノードで${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
-    );
+  for (const fileName of srcFiles) {
+    const source = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', fileName), 'utf-8'));
+    for (const { pattern, label } of forbiddenPatterns) {
+      assert.equal(pattern.test(source), false, `src/${fileName}で${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`);
+    }
+  }
+
+  for (const nodeName of codeNodeNames) {
+    const jsCode = stripComments(findCodeNode(workflow, nodeName));
+    for (const { pattern, label } of forbiddenPatterns) {
+      assert.equal(
+        pattern.test(jsCode),
+        false,
+        `workflow内のCodeノード"${nodeName}"で${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
+      );
+    }
   }
 });
