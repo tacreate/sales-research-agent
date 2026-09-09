@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>企業リサーチアシスタント</title>
+<style>
+  :root {
+    --color-bg: #ffffff;
+    --color-surface: #f7f9fc;
+    --color-border: #e2e8f0;
+    --color-text: #1a2233;
+    --color-text-muted: #5b6472;
+    --color-accent: #1e3a8a;
+    --color-accent-hover: #16306f;
+    --color-danger: #b91c1c;
+    --color-danger-bg: #fef2f2;
+    --color-warning-bg: #fffbeb;
+    --color-warning-text: #92400e;
+    --radius: 10px;
+    --max-width: 760px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.7;
+  }
+
+  .page {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  header.hero {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+
+  header.hero h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--color-accent);
+  }
+
+  header.hero p {
+    color: var(--color-text-muted);
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 32px;
+  }
+
+  form .field {
+    margin-bottom: 20px;
+  }
+
+  form label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+  }
+
+  form label .optional {
+    font-weight: 400;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+  }
+
+  form input[type="text"],
+  form input[type="url"],
+  form textarea {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 1rem;
+    font-family: inherit;
+    background: #fff;
+    color: var(--color-text);
+  }
+
+  form input:focus,
+  form textarea:focus {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  form textarea {
+    resize: vertical;
+    min-height: 72px;
+  }
+
+  .char-count {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    text-align: right;
+    margin-top: 4px;
+  }
+
+  button.primary {
+    width: 100%;
+    padding: 14px 20px;
+    background: var(--color-accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button.primary:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
+
+  button.primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  button.secondary {
+    display: inline-block;
+    padding: 10px 18px;
+    background: transparent;
+    color: var(--color-accent);
+    border: 1px solid var(--color-accent);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button.secondary:hover {
+    background: #eef2ff;
+  }
+
+  button.link {
+    background: none;
+    border: none;
+    color: var(--color-accent);
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  [hidden] { display: none !important; }
+
+  .status-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+  }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .error-box {
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+    border-radius: 8px;
+    font-size: 0.9rem;
+  }
+
+  .result h2 {
+    font-size: 1.2rem;
+    margin: 0 0 4px;
+  }
+
+  .result .result-meta {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 24px;
+  }
+
+  .result section {
+    margin-bottom: 28px;
+  }
+
+  .result section h3 {
+    font-size: 1rem;
+    color: var(--color-accent);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+  }
+
+  .source-item {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .source-item:last-child { border-bottom: none; }
+
+  .source-item .source-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .source-item a {
+    color: var(--color-accent);
+    font-size: 0.85rem;
+    word-break: break-all;
+    text-decoration: none;
+  }
+
+  .source-item a:hover { text-decoration: underline; }
+
+  .source-item .snippet {
+    margin-top: 6px;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+  }
+
+  .empty-note {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+  }
+
+  .warnings-box {
+    background: var(--color-warning-bg);
+    color: var(--color-warning-text);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 0.9rem;
+  }
+
+  .warnings-box ul {
+    margin: 6px 0 0;
+    padding-left: 20px;
+  }
+
+  .result-actions {
+    text-align: center;
+    margin-top: 8px;
+  }
+
+  footer.disclaimer {
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+    margin-top: 32px;
+  }
+
+  @media (max-width: 480px) {
+    .page { padding: 32px 16px 60px; }
+    .card { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <h1>企業リサーチアシスタント</h1>
+    <p>会社名と公式サイトURLを入力すると、公開情報から企業概要を調査します。</p>
+  </header>
+
+  <div class="card">
+    <form id="research-form">
+      <div class="field">
+        <label for="company_name">会社名（必須）</label>
+        <input type="text" id="company_name" name="company_name" maxlength="200" required placeholder="例：株式会社サンプル">
+      </div>
+      <div class="field">
+        <label for="official_url">公式サイトURL（必須）</label>
+        <input type="url" id="official_url" name="official_url" maxlength="500" required placeholder="https://example.com/">
+      </div>
+      <div class="field">
+        <label for="research_purpose">調査目的<span class="optional">（任意）</span></label>
+        <textarea id="research_purpose" name="research_purpose" maxlength="500" placeholder="例：導入検討先の事業内容を把握したい"></textarea>
+        <div class="char-count"><span id="purpose-count">0</span> / 500文字</div>
+      </div>
+      <button type="submit" class="primary" id="submit-button">企業を調査する</button>
+      <div class="status-line" id="loading-status" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span>調査中です。しばらくお待ちください…</span>
+      </div>
+      <div class="error-box" id="error-box" hidden></div>
+    </form>
+  </div>
+
+  <div class="card result" id="result-card" hidden style="margin-top: 24px;">
+    <h2 id="result-company-name"></h2>
+    <p class="result-meta" id="result-meta"></p>
+
+    <section>
+      <h3>公式サイトから取得した情報</h3>
+      <div id="official-sources"></div>
+    </section>
+
+    <section>
+      <h3>外部サイトから取得した情報</h3>
+      <div id="external-sources"></div>
+    </section>
+
+    <section id="warnings-section" hidden>
+      <h3>警告・取得できなかった情報</h3>
+      <div class="warnings-box" id="warnings-box"></div>
+    </section>
+
+    <div class="result-actions">
+      <button type="button" class="secondary" id="reset-button">別の企業を調査する</button>
+    </div>
+  </div>
+
+  <footer class="disclaimer">
+    本ツールは公開情報の調査を支援するものであり、内容の正確性を保証するものではありません。
+  </footer>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById('research-form');
+  const submitButton = document.getElementById('submit-button');
+  const loadingStatus = document.getElementById('loading-status');
+  const errorBox = document.getElementById('error-box');
+  const resultCard = document.getElementById('result-card');
+  const resetButton = document.getElementById('reset-button');
+  const purposeInput = document.getElementById('research_purpose');
+  const purposeCount = document.getElementById('purpose-count');
+
+  purposeInput.addEventListener('input', () => {
+    purposeCount.textContent = String(purposeInput.value.length);
+  });
+
+  function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+  }
+
+  function renderSourceList(container, sources) {
+    container.innerHTML = '';
+    if (!sources || sources.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'empty-note';
+      p.textContent = '該当する情報は見つかりませんでした。';
+      container.appendChild(p);
+      return;
+    }
+
+    for (const source of sources) {
+      const item = document.createElement('div');
+      item.className = 'source-item';
+
+      const title = document.createElement('div');
+      title.className = 'source-title';
+      title.textContent = source.title;
+      item.appendChild(title);
+
+      const link = document.createElement('a');
+      link.href = source.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = source.url;
+      item.appendChild(link);
+
+      if (source.snippet) {
+        const snippetWrap = document.createElement('div');
+        snippetWrap.className = 'snippet';
+
+        const shortLen = 150;
+        const isLong = source.snippet.length > shortLen;
+        const shortText = isLong ? source.snippet.slice(0, shortLen) + '…' : source.snippet;
+
+        const textSpan = document.createElement('span');
+        textSpan.textContent = shortText;
+        snippetWrap.appendChild(textSpan);
+
+        if (isLong) {
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'link';
+          toggle.textContent = '続きを読む';
+          toggle.style.marginLeft = '6px';
+          let expanded = false;
+          toggle.addEventListener('click', () => {
+            expanded = !expanded;
+            textSpan.textContent = expanded ? source.snippet : shortText;
+            toggle.textContent = expanded ? '閉じる' : '続きを読む';
+          });
+          snippetWrap.appendChild(toggle);
+        }
+
+        item.appendChild(snippetWrap);
+      }
+
+      container.appendChild(item);
+    }
+  }
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+  }
+
+  function clearError() {
+    errorBox.hidden = true;
+    errorBox.textContent = '';
+  }
+
+  function setLoading(isLoading) {
+    submitButton.disabled = isLoading;
+    loadingStatus.hidden = !isLoading;
+  }
+
+  function showResult(data) {
+    document.getElementById('result-company-name').textContent = data.company_name || '調査対象企業';
+    document.getElementById('result-meta').textContent = '公式サイト: ' + (data.official_url || '不明');
+
+    renderSourceList(document.getElementById('official-sources'), data.official_sources);
+    renderSourceList(document.getElementById('external-sources'), data.external_sources);
+
+    const warningsSection = document.getElementById('warnings-section');
+    const warningsBox = document.getElementById('warnings-box');
+    if (data.warnings && data.warnings.length > 0) {
+      warningsBox.innerHTML = '<ul>' + data.warnings.map((w) => '<li>' + escapeHtml(w) + '</li>').join('') + '</ul>';
+      warningsSection.hidden = false;
+    } else {
+      warningsSection.hidden = true;
+    }
+
+    form.hidden = true;
+    resultCard.hidden = false;
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearError();
+
+    const payload = {
+      company_name: document.getElementById('company_name').value.trim(),
+      official_url: document.getElementById('official_url').value.trim(),
+      research_purpose: purposeInput.value.trim(),
+    };
+
+    if (!payload.company_name || !payload.official_url) {
+      showError('会社名と公式サイトURLを入力してください。');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message = (data && data.message) || '調査に失敗しました。しばらくしてから再試行してください。';
+        showError(message);
+        return;
+      }
+
+      showResult(data);
+    } catch (err) {
+      showError('通信エラーが発生しました。ネットワーク接続をご確認のうえ、再試行してください。');
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  resetButton.addEventListener('click', () => {
+    form.reset();
+    purposeCount.textContent = '0';
+    form.hidden = false;
+    resultCard.hidden = true;
+    clearError();
+  });
+})();
+</script>
+</body>
+</html>

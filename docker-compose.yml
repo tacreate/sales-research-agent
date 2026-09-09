@@ -21,5 +21,28 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
 
+  web:
+    # デモUI用の最小バックエンド（Node標準ライブラリのみ、追加npm依存なし）。
+    # 公式Nodeイメージ上でリポジトリをそのまま実行する（ビルドステップ不要）。
+    image: node:22-alpine
+    container_name: sales-research-agent-web
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "server/index.js"]
+    ports:
+      # localhostのみに公開する（n8nと同じ方針。外部公開は別途検討）
+      - "127.0.0.1:3000:3000"
+    environment:
+      - PORT=3000
+      # docker-compose内部ネットワークではサービス名でn8nに到達できる
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/research
+    env_file:
+      # N8N_WEBHOOK_SECRET（秘密値）はここ経由でのみ渡す
+      - .env
+    volumes:
+      - ./:/app:ro
+    depends_on:
+      - n8n
+
 volumes:
   n8n_data:

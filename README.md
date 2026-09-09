@@ -6,10 +6,11 @@ BtoB営業担当者が「企業名・公式URL・自社サービス」を入力�
 
 ## ステータス
 
-現在 **Phase 3（Tavily情報取得）** に着手中。Phase 1（Structured Output契約）・
-Phase 2（n8nローカル実行環境）は完了。n8nワークフローにTavily Search/Extract部分を
-実装したが、認証情報（Tavily API）が未割り当てのため実際のAPI呼び出しはまだ行っていない。
-OpenAI連携・Form Trigger・Human-in-the-loop・レポート生成はまだ実装していない。
+Phase 1〜3（Structured Output契約、n8nローカル実行環境、Tavily情報取得）は完了。
+実企業での実API疎通確認済み（詳細は`docs/ASSUMPTIONS.md`）。加えて、Phase 3のワークフローを
+ブラウザから実行できる最小デモUIを追加した（[docs/DEMO_UI.md](docs/DEMO_UI.md)参照、
+OpenAI連携は含まない）。OpenAI連携（Phase 4）・Human-in-the-loop（Phase 5）は
+別ブランチで検討中、または未着手。
 
 ## スコープ（MVP）
 
@@ -40,6 +41,7 @@ OpenAI連携・Form Trigger・Human-in-the-loop・レポート生成はまだ実
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — 環境確認結果
 - [docs/DOCKER.md](docs/DOCKER.md) — n8nイメージバージョン選定・Apple silicon対応確認・構成方針
 - [docs/TAVILY.md](docs/TAVILY.md) — Tavily Search/Extract API仕様、認証方式、呼び出し上限
+- [docs/DEMO_UI.md](docs/DEMO_UI.md) — 応募用デモUI（ブラウザ→Webhook→Tavily）の構成・セキュリティ・起動手順
 - [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) — 各フェーズで行った仮定の記録
 
 ## Structured Output契約の検証（Phase 1）
@@ -201,11 +203,22 @@ sales-research-agent/
 │   └── phase3-tavily-research.json
 ├── src/
 │   ├── validate.js
-│   └── normalize.js
+│   ├── normalize.js
+│   ├── sanitize_input.js
+│   ├── reshape_result.js
+│   └── rate_limiter.js
+├── server/
+│   └── index.js
+├── web/
+│   └── index.html
 ├── test/
 │   ├── validate.test.js
 │   ├── normalize.test.js
-│   └── workflow-sync.test.js
+│   ├── workflow-sync.test.js
+│   ├── sanitize_input.test.js
+│   ├── reshape_result.test.js
+│   ├── rate_limiter.test.js
+│   └── server.test.js
 ├── docs/
 │   ├── REQUIREMENTS.md
 │   ├── ARCHITECTURE.md
@@ -213,6 +226,7 @@ sales-research-agent/
 │   ├── ENVIRONMENT.md
 │   ├── DOCKER.md
 │   ├── TAVILY.md
+│   ├── DEMO_UI.md
 │   └── ASSUMPTIONS.md
 └── .github/
     ├── workflows/

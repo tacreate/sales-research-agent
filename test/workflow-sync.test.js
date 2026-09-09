@@ -5,6 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { buildResearchOutput } from '../src/normalize.js';
+import { sanitizeResearchInput } from '../src/sanitize_input.js';
 
 /**
  * n8nのCodeノードは外部モジュールをimportできないため、workflow JSON内に
@@ -26,18 +27,18 @@ function loadTavilyFixture(name) {
   return JSON.parse(fs.readFileSync(path.join(TAVILY_FIXTURES_DIR, name), 'utf-8'));
 }
 
-function extractCodeNodeJs(workflow) {
-  const codeNode = workflow.nodes.find((n) => n.type === 'n8n-nodes-base.code');
-  if (!codeNode) throw new Error('workflow内にCodeノードが見つかりません');
+function extractCodeNodeJs(workflow, nodeName) {
+  const codeNode = workflow.nodes.find((n) => n.type === 'n8n-nodes-base.code' && (!nodeName || n.name === nodeName));
+  if (!codeNode) throw new Error(`workflow内にCodeノード${nodeName ? `"${nodeName}"` : ''}が見つかりません`);
   return codeNode.parameters.jsCode;
 }
 
 /**
- * jsCode末尾のn8nノード参照部分（$('Fixed Test Input')等）はvmサンドボックス内では
+ * jsCode末尾のn8nノード参照部分（$('Input Ready')等）はvmサンドボックス内では
  * 動作しないため、関数宣言部分のみを取り出してbuildResearchOutputを呼び出せるようにする。
  */
 function loadBuildResearchOutputFromWorkflowCode(jsCode) {
-  const marker = "const input = $('Fixed Test Input')";
+  const marker = "const input = $('Input Ready')";
   const idx = jsCode.indexOf(marker);
   if (idx === -1) {
     throw new Error('想定した構造（末尾のn8nノード参照部分）が見つからず、同期チェックができません');
@@ -59,7 +60,7 @@ function loadBuildResearchOutputFromWorkflowCode(jsCode) {
 
 test('workflowのCodeノードとsrc/normalize.jsは、同一fixtureに対して同一の出力を返す（手動同期チェック）', () => {
   const workflow = JSON.parse(fs.readFileSync(WORKFLOW_PATH, 'utf-8'));
-  const jsCode = extractCodeNodeJs(workflow);
+  const jsCode = extractCodeNodeJs(workflow, 'Normalize, Dedupe & Structure Output');
   const workflowBuildResearchOutput = loadBuildResearchOutputFromWorkflowCode(jsCode);
 
   const input = loadTavilyFixture('input.json');
@@ -93,6 +94,40 @@ test('workflowのCodeノードとsrc/normalize.jsは、同一fixtureに対して
   }
 });
 
+test('workflowのSanitize Webhook InputノードとSRC/sanitize_input.jsは、同一入力に対して同一の判定を返す（手動同期チェック、デモUI）', () => {
+  const workflow = JSON.parse(fs.readFileSync(WORKFLOW_PATH, 'utf-8'));
+  const jsCode = extractCodeNodeJs(workflow, 'Sanitize Webhook Input');
+
+  const marker = 'const body = $json.body';
+  const idx = jsCode.indexOf(marker);
+  if (idx === -1) {
+    throw new Error('想定した構造（末尾のn8nノード参照部分）が見つからず、同期チェックができません');
+  }
+  const functionsOnly = jsCode.slice(0, idx);
+
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(`${functionsOnly}\nthis.__sanitizeResearchInput = sanitizeResearchInput;`, context);
+  const workflowSanitize = context.__sanitizeResearchInput;
+  if (typeof workflowSanitize !== 'function') {
+    throw new Error('workflow内のjsCodeからsanitizeResearchInput関数を取り出せませんでした');
+  }
+
+  const cases = [
+    { company_name: 'Example Corp', official_url: 'https://example.com/', research_purpose: '導入検討' },
+    { company_name: '', official_url: 'https://example.com/' },
+    { company_name: 'Example Corp', official_url: 'http://localhost/' },
+    { company_name: 'Example Corp', official_url: 'ftp://example.com/' },
+    {},
+  ];
+
+  for (const raw of cases) {
+    const fromModule = sanitizeResearchInput(raw);
+    const fromWorkflow = JSON.parse(JSON.stringify(workflowSanitize(raw)));
+    assert.deepEqual(fromWorkflow, fromModule, `${JSON.stringify(raw)} でworkflowとsrc/sanitize_input.jsの出力が一致しません（同期漏れの可能性）`);
+  }
+});
+
 /**
  * PR #6の実API確認で発覚したインシデントの再発防止テスト。
  *
@@ -115,10 +150,10 @@ function stripComments(code) {
     .join('\n');
 }
 
-test('src/normalize.jsとworkflow内Codeノードは、n8n Codeノードのサンドボックスで未提供のAPI（URL/require等）を使用していない', () => {
-  const normalizeSource = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'normalize.js'), 'utf-8'));
+test('src配下のロジックとworkflow内の全Codeノードは、n8n Codeノードのサンドボックスで未提供のAPI（URL/require等）を使用していない', () => {
   const workflow = JSON.parse(fs.readFileSync(WORKFLOW_PATH, 'utf-8'));
-  const jsCode = stripComments(extractCodeNodeJs(workflow));
+  const srcFiles = ['normalize.js', 'sanitize_input.js'];
+  const codeNodeNames = ['Normalize, Dedupe & Structure Output', 'Sanitize Webhook Input', 'Build Input Error Result'];
 
   const forbiddenPatterns = [
     { pattern: /\bnew\s+URL\s*\(/, label: 'new URL(...)' },
@@ -127,16 +162,21 @@ test('src/normalize.jsとworkflow内Codeノードは、n8n Codeノードのサ�
     { pattern: /\bfetch\s*\(/, label: 'fetch(...)' },
   ];
 
-  for (const { pattern, label } of forbiddenPatterns) {
-    assert.equal(
-      pattern.test(normalizeSource),
-      false,
-      `src/normalize.jsで${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
-    );
-    assert.equal(
-      pattern.test(jsCode),
-      false,
-      `workflow内のCodeノードで${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
-    );
+  for (const fileName of srcFiles) {
+    const source = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', fileName), 'utf-8'));
+    for (const { pattern, label } of forbiddenPatterns) {
+      assert.equal(pattern.test(source), false, `src/${fileName}で${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`);
+    }
+  }
+
+  for (const nodeName of codeNodeNames) {
+    const jsCode = stripComments(extractCodeNodeJs(workflow, nodeName));
+    for (const { pattern, label } of forbiddenPatterns) {
+      assert.equal(
+        pattern.test(jsCode),
+        false,
+        `workflow内のCodeノード"${nodeName}"で${label}が使われています（n8n Codeノードのサンドボックスでは利用不可）`
+      );
+    }
   }
 });
