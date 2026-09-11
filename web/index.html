@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>企業リサーチアシスタント</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root {
     --color-bg: #ffffff;
@@ -264,6 +265,10 @@
     margin-top: 8px;
   }
 
+  .result-actions button {
+    margin: 0 6px;
+  }
+
   footer.disclaimer {
     text-align: center;
     color: var(--color-text-muted);
@@ -328,6 +333,7 @@
     </section>
 
     <div class="result-actions">
+      <button type="button" class="secondary" id="save-image-button">画像として保存</button>
       <button type="button" class="secondary" id="reset-button">別の企業を調査する</button>
     </div>
   </div>
@@ -345,6 +351,8 @@
   const errorBox = document.getElementById('error-box');
   const resultCard = document.getElementById('result-card');
   const resetButton = document.getElementById('reset-button');
+  const saveImageButton = document.getElementById('save-image-button');
+  const resultActions = document.querySelector('.result-actions');
   const purposeInput = document.getElementById('research_purpose');
   const purposeCount = document.getElementById('purpose-count');
 
@@ -497,6 +505,31 @@
     form.hidden = false;
     resultCard.hidden = true;
     clearError();
+  });
+
+  saveImageButton.addEventListener('click', async () => {
+    if (typeof html2canvas !== 'function') {
+      showError('画像保存の準備ができていません。しばらくしてから再試行してください。');
+      return;
+    }
+
+    const companyName = document.getElementById('result-company-name').textContent || 'research-result';
+    const safeName = companyName.replace(/[\\/:*?"<>|]/g, '_');
+
+    saveImageButton.disabled = true;
+    resultActions.style.visibility = 'hidden';
+    try {
+      const canvas = await html2canvas(resultCard, { backgroundColor: '#ffffff' });
+      const link = document.createElement('a');
+      link.download = safeName + '_調査結果.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      showError('画像の保存に失敗しました。しばらくしてから再試行してください。');
+    } finally {
+      resultActions.style.visibility = 'visible';
+      saveImageButton.disabled = false;
+    }
   });
 })();
 </script>

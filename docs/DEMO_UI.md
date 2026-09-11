@@ -80,6 +80,9 @@ n8n Webhookからの生JSON（`input`/`search`/`extract`/`sources`/`warnings`/`g
   ことを利用者に誤解させないため）
 - 長いsnippetはフロントエンド側で150文字に短縮表示し、「続きを読む」で全文を展開する
   （`web/index.html`のJavaScriptで実装、サーバー側では2000文字を上限に保持するのみ）
+- 結果画面には「画像として保存」ボタンを設置し、[html2canvas](https://html2canvas.hertzen.com/)
+  （CDN読み込み、新規npm依存なし）で結果カード部分をPNG画像化してダウンロードできる
+  （応募・提案時の証拠保存を目的とする）
 
 ## セキュリティ
 
