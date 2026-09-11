@@ -43,6 +43,18 @@
               "name": "research_purpose",
               "type": "string",
               "value": "導入検討先の事業内容と最近の動きを把握する（架空データ、固定テスト入力）"
+            },
+            {
+              "id": "b2b2b2b2-0000-4000-8000-000000000001",
+              "name": "_source",
+              "type": "string",
+              "value": "manual"
+            },
+            {
+              "id": "b2b2b2b2-0000-4000-8000-000000000002",
+              "name": "_input_error",
+              "type": "string",
+              "value": ""
             }
           ]
         },
@@ -117,7 +129,154 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// このロジックは src/normalize.js と同一内容を手動で複製している（n8n Codeノードは\n// 外部モジュールをimportできないため）。変更時は両方を同期させること。\n\nconst TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref'];\n\n// http(s) URLのみを対象とする単純なパーサー。\n// 注意：n8nのCodeノードのサンドボックス（JS Task Runner）にはグローバルの`URL`/\n// `URLSearchParams`が存在せず、`require('url')`も許可されていないため、標準の\n// `URL`クラスを一切使わずに正規表現と文字列操作のみで実装している。\nconst ABSOLUTE_HTTP_URL_PATTERN = /^(https?):\\/\\/([^/?#:]+)(?::(\\d+))?([^?#]*)(?:\\?([^#]*))?(?:#.*)?$/i;\n\nfunction parseHttpUrl(rawUrl) {\n  if (!rawUrl || typeof rawUrl !== 'string') return null;\n  const match = ABSOLUTE_HTTP_URL_PATTERN.exec(rawUrl.trim());\n  if (!match) return null;\n  const [, protocol, hostname, port, path, query] = match;\n  return { protocol: protocol.toLowerCase(), hostname, port: port || '', pathname: path || '', query: query || '' };\n}\n\nfunction decodeQueryKey(rawKey) {\n  try {\n    return decodeURIComponent(rawKey.replace(/\\+/g, ' '));\n  } catch (e) {\n    return rawKey;\n  }\n}\n\nfunction normalizeUrl(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  if (!parsed) return null;\n\n  const hostname = parsed.hostname.toLowerCase();\n  const port = (parsed.protocol === 'http' && parsed.port === '80') || (parsed.protocol === 'https' && parsed.port === '443')\n    ? ''\n    : parsed.port;\n\n  let pathname = parsed.pathname || '/';\n  if (!pathname.startsWith('/')) pathname = `/${pathname}`;\n  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);\n\n  const params = [];\n  for (const pair of parsed.query ? parsed.query.split('&') : []) {\n    if (!pair) continue;\n    const eqIdx = pair.indexOf('=');\n    const rawKey = eqIdx === -1 ? pair : pair.slice(0, eqIdx);\n    const rawValue = eqIdx === -1 ? '' : pair.slice(eqIdx + 1);\n    if (TRACKING_PARAMS.includes(decodeQueryKey(rawKey))) continue;\n    params.push([rawKey, rawValue]);\n  }\n  params.sort((a, b) => {\n    const ka = decodeQueryKey(a[0]);\n    const kb = decodeQueryKey(b[0]);\n    return ka < kb ? -1 : ka > kb ? 1 : 0;\n  });\n  const query = params.map(([k, v]) => (v ? `${k}=${v}` : k)).join('&');\n\n  return `${parsed.protocol}://${hostname}${port ? `:${port}` : ''}${pathname}${query ? `?${query}` : ''}`;\n}\n\nfunction getHostname(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  return parsed ? parsed.hostname.toLowerCase() : null;\n}\n\nfunction classifySourceType(url, officialUrl) {\n  const h1 = getHostname(url);\n  const h2 = getHostname(officialUrl);\n  if (!h1 || !h2) return 'external';\n  return h1 === h2 ? 'official' : 'external';\n}\n\nfunction dedupeSources(rawSources) {\n  const map = new Map();\n  const order = [];\n  let counter = 0;\n  for (const s of rawSources) {\n    const normalized = normalizeUrl(s.url);\n    if (!normalized) continue;\n    if (!map.has(normalized)) {\n      counter += 1;\n      map.set(normalized, {\n        id: 'src' + counter,\n        url: s.url,\n        normalized_url: normalized,\n        title: s.title || null,\n        snippet: s.snippet || null,\n        source_type: s.source_type,\n        origin: [s.origin],\n      });\n      order.push(normalized);\n    } else {\n      const entry = map.get(normalized);\n      if (!entry.title && s.title) entry.title = s.title;\n      if (!entry.snippet && s.snippet) entry.snippet = s.snippet;\n      if (!entry.origin.includes(s.origin)) entry.origin.push(s.origin);\n    }\n  }\n  return order.map((k) => map.get(k));\n}\n\nfunction extractErrorMessage(err) {\n  if (typeof err === 'string') return err;\n  if (err && typeof err === 'object') return err.message || JSON.stringify(err);\n  return 'unknown error';\n}\n\nfunction buildSearchSummary(searchItem, query, maxResults) {\n  if (searchItem && searchItem.error) {\n    return { status: 'error', query, max_results: maxResults, returned_count: 0, error_message: extractErrorMessage(searchItem.error) };\n  }\n  const results = Array.isArray(searchItem && searchItem.results) ? searchItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', query, max_results: maxResults, returned_count: 0 };\n  }\n  return { status: 'ok', query, max_results: maxResults, returned_count: results.length };\n}\n\nfunction buildExtractSummary(extractItem, requestedUrl) {\n  if (extractItem && extractItem.error) {\n    return { status: 'error', requested_url: requestedUrl, error_message: extractErrorMessage(extractItem.error), failed_urls: [] };\n  }\n  const failed = Array.isArray(extractItem && extractItem.failed_results) ? extractItem.failed_results : [];\n  if (failed.length > 0) {\n    return {\n      status: 'error',\n      requested_url: requestedUrl,\n      error_message: failed.map((f) => f.url + ': ' + f.error).join('; '),\n      failed_urls: failed.map((f) => f.url),\n    };\n  }\n  const results = Array.isArray(extractItem && extractItem.results) ? extractItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', requested_url: requestedUrl, failed_urls: [] };\n  }\n  return { status: 'ok', requested_url: requestedUrl, failed_urls: [] };\n}\n\nfunction buildResearchOutput({ input, searchItem, extractItem }) {\n  const query = input.company_name + ' 会社概要';\n  const maxResults = 3;\n  const search = buildSearchSummary(searchItem, query, maxResults);\n  const extract = buildExtractSummary(extractItem, input.official_url);\n\n  const rawSources = [];\n\n  if (extract.status === 'ok') {\n    for (const r of extractItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: null,\n        snippet: r.raw_content ? String(r.raw_content).slice(0, 500) : null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'extract',\n      });\n    }\n  }\n\n  if (search.status === 'ok') {\n    for (const r of searchItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: r.title || null,\n        snippet: r.content || null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'search',\n      });\n    }\n  }\n\n  const sources = dedupeSources(rawSources);\n\n  const warnings = [];\n  if (search.status === 'error') warnings.push('Tavily Search呼び出しに失敗しました: ' + search.error_message);\n  if (search.status === 'empty') warnings.push('Tavily Searchの結果が0件でした。');\n  if (extract.status === 'error') warnings.push('Tavily Extractに失敗しました: ' + extract.error_message);\n  if (sources.length === 0) warnings.push('有効な出典が1件も取得できませんでした。');\n\n  return {\n    input,\n    search,\n    extract,\n    sources,\n    warnings,\n    generated_at: new Date().toISOString(),\n  };\n}\n\nconst input = $('Fixed Test Input').first().json;\nconst searchItem = $('Tavily Search').first().json;\nconst extractItem = $('Tavily Extract').first().json;\n\nreturn [{ json: buildResearchOutput({ input, searchItem, extractItem }) }];"
+        "jsCode": "// このロジックは src/normalize.js と同一内容を手動で複製している（n8n Codeノードは\n// 外部モジュールをimportできないため）。変更時は両方を同期させること。\n\nconst TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref'];\n\n// http(s) URLのみを対象とする単純なパーサー。\n// 注意：n8nのCodeノードのサンドボックス（JS Task Runner）にはグローバルの`URL`/\n// `URLSearchParams`が存在せず、`require('url')`も許可されていないため、標準の\n// `URL`クラスを一切使わずに正規表現と文字列操作のみで実装している。\nconst ABSOLUTE_HTTP_URL_PATTERN = /^(https?):\\/\\/([^/?#:]+)(?::(\\d+))?([^?#]*)(?:\\?([^#]*))?(?:#.*)?$/i;\n\nfunction parseHttpUrl(rawUrl) {\n  if (!rawUrl || typeof rawUrl !== 'string') return null;\n  const match = ABSOLUTE_HTTP_URL_PATTERN.exec(rawUrl.trim());\n  if (!match) return null;\n  const [, protocol, hostname, port, path, query] = match;\n  return { protocol: protocol.toLowerCase(), hostname, port: port || '', pathname: path || '', query: query || '' };\n}\n\nfunction decodeQueryKey(rawKey) {\n  try {\n    return decodeURIComponent(rawKey.replace(/\\+/g, ' '));\n  } catch (e) {\n    return rawKey;\n  }\n}\n\nfunction normalizeUrl(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  if (!parsed) return null;\n\n  const hostname = parsed.hostname.toLowerCase();\n  const port = (parsed.protocol === 'http' && parsed.port === '80') || (parsed.protocol === 'https' && parsed.port === '443')\n    ? ''\n    : parsed.port;\n\n  let pathname = parsed.pathname || '/';\n  if (!pathname.startsWith('/')) pathname = `/${pathname}`;\n  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);\n\n  const params = [];\n  for (const pair of parsed.query ? parsed.query.split('&') : []) {\n    if (!pair) continue;\n    const eqIdx = pair.indexOf('=');\n    const rawKey = eqIdx === -1 ? pair : pair.slice(0, eqIdx);\n    const rawValue = eqIdx === -1 ? '' : pair.slice(eqIdx + 1);\n    if (TRACKING_PARAMS.includes(decodeQueryKey(rawKey))) continue;\n    params.push([rawKey, rawValue]);\n  }\n  params.sort((a, b) => {\n    const ka = decodeQueryKey(a[0]);\n    const kb = decodeQueryKey(b[0]);\n    return ka < kb ? -1 : ka > kb ? 1 : 0;\n  });\n  const query = params.map(([k, v]) => (v ? `${k}=${v}` : k)).join('&');\n\n  return `${parsed.protocol}://${hostname}${port ? `:${port}` : ''}${pathname}${query ? `?${query}` : ''}`;\n}\n\nfunction getHostname(rawUrl) {\n  const parsed = parseHttpUrl(rawUrl);\n  return parsed ? parsed.hostname.toLowerCase() : null;\n}\n\nfunction classifySourceType(url, officialUrl) {\n  const h1 = getHostname(url);\n  const h2 = getHostname(officialUrl);\n  if (!h1 || !h2) return 'external';\n  return h1 === h2 ? 'official' : 'external';\n}\n\nfunction dedupeSources(rawSources) {\n  const map = new Map();\n  const order = [];\n  let counter = 0;\n  for (const s of rawSources) {\n    const normalized = normalizeUrl(s.url);\n    if (!normalized) continue;\n    if (!map.has(normalized)) {\n      counter += 1;\n      map.set(normalized, {\n        id: 'src' + counter,\n        url: s.url,\n        normalized_url: normalized,\n        title: s.title || null,\n        snippet: s.snippet || null,\n        source_type: s.source_type,\n        origin: [s.origin],\n      });\n      order.push(normalized);\n    } else {\n      const entry = map.get(normalized);\n      if (!entry.title && s.title) entry.title = s.title;\n      if (!entry.snippet && s.snippet) entry.snippet = s.snippet;\n      if (!entry.origin.includes(s.origin)) entry.origin.push(s.origin);\n    }\n  }\n  return order.map((k) => map.get(k));\n}\n\nfunction extractErrorMessage(err) {\n  if (typeof err === 'string') return err;\n  if (err && typeof err === 'object') return err.message || JSON.stringify(err);\n  return 'unknown error';\n}\n\nfunction buildSearchSummary(searchItem, query, maxResults) {\n  if (searchItem && searchItem.error) {\n    return { status: 'error', query, max_results: maxResults, returned_count: 0, error_message: extractErrorMessage(searchItem.error) };\n  }\n  const results = Array.isArray(searchItem && searchItem.results) ? searchItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', query, max_results: maxResults, returned_count: 0 };\n  }\n  return { status: 'ok', query, max_results: maxResults, returned_count: results.length };\n}\n\nfunction buildExtractSummary(extractItem, requestedUrl) {\n  if (extractItem && extractItem.error) {\n    return { status: 'error', requested_url: requestedUrl, error_message: extractErrorMessage(extractItem.error), failed_urls: [] };\n  }\n  const failed = Array.isArray(extractItem && extractItem.failed_results) ? extractItem.failed_results : [];\n  if (failed.length > 0) {\n    return {\n      status: 'error',\n      requested_url: requestedUrl,\n      error_message: failed.map((f) => f.url + ': ' + f.error).join('; '),\n      failed_urls: failed.map((f) => f.url),\n    };\n  }\n  const results = Array.isArray(extractItem && extractItem.results) ? extractItem.results : [];\n  if (results.length === 0) {\n    return { status: 'empty', requested_url: requestedUrl, failed_urls: [] };\n  }\n  return { status: 'ok', requested_url: requestedUrl, failed_urls: [] };\n}\n\nfunction buildResearchOutput({ input, searchItem, extractItem }) {\n  const query = input.company_name + ' 会社概要';\n  const maxResults = 3;\n  const search = buildSearchSummary(searchItem, query, maxResults);\n  const extract = buildExtractSummary(extractItem, input.official_url);\n\n  const rawSources = [];\n\n  if (extract.status === 'ok') {\n    for (const r of extractItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: null,\n        snippet: r.raw_content ? String(r.raw_content).slice(0, 500) : null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'extract',\n      });\n    }\n  }\n\n  if (search.status === 'ok') {\n    for (const r of searchItem.results) {\n      rawSources.push({\n        url: r.url,\n        title: r.title || null,\n        snippet: r.content || null,\n        source_type: classifySourceType(r.url, input.official_url),\n        origin: 'search',\n      });\n    }\n  }\n\n  const sources = dedupeSources(rawSources);\n\n  const warnings = [];\n  if (search.status === 'error') warnings.push('Tavily Search呼び出しに失敗しました: ' + search.error_message);\n  if (search.status === 'empty') warnings.push('Tavily Searchの結果が0件でした。');\n  if (extract.status === 'error') warnings.push('Tavily Extractに失敗しました: ' + extract.error_message);\n  if (sources.length === 0) warnings.push('有効な出典が1件も取得できませんでした。');\n\n  return {\n    input,\n    search,\n    extract,\n    sources,\n    warnings,\n    generated_at: new Date().toISOString(),\n  };\n}\n\nconst input = $('Input Ready').first().json;\nconst searchItem = $('Tavily Search').first().json;\nconst extractItem = $('Tavily Extract').first().json;\n\nreturn [{ json: buildResearchOutput({ input, searchItem, extractItem }) }];"
+      }
+    },
+    {
+      "id": "f1a2b3c4-0001-4abc-8def-000000000001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        240
+      ],
+      "webhookId": "demo-research-webhook",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "research",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "f1a2b3c4-0002-4abc-8def-000000000002",
+      "name": "Sanitize Webhook Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// このロジックは src/sanitize_input.js と同一内容を手動で複製している（n8n Codeノードは\n// 外部モジュールをimportできないため）。変更時は両方を同期させること。\n// n8n Codeノードのサンドボックスには`URL`が存在しないため、正規表現＋文字列操作のみで実装する。\n\nconst MAX_COMPANY_NAME_LENGTH = 200;\nconst MAX_RESEARCH_PURPOSE_LENGTH = 500;\n\nconst ABSOLUTE_HTTP_URL_PATTERN = /^(https?):\\/\\/(\\[[0-9a-fA-F:]+\\]|[^/?#:]+)(?::(\\d+))?([^?#]*)(?:\\?([^#]*))?(?:#.*)?$/i;\n\nfunction parseHttpUrl(rawUrl) {\n  if (!rawUrl || typeof rawUrl !== 'string') return null;\n  const match = ABSOLUTE_HTTP_URL_PATTERN.exec(rawUrl.trim());\n  if (!match) return null;\n  const [, protocol, hostname] = match;\n  return { protocol: protocol.toLowerCase(), hostname: hostname.toLowerCase() };\n}\n\nconst BLOCKED_HOSTNAME_PATTERNS = [\n  /^localhost$/,\n  /^127\\./,\n  /^10\\./,\n  /^192\\.168\\./,\n  /^172\\.(1[6-9]|2\\d|3[01])\\./,\n  /^169\\.254\\./,\n  /^0\\.0\\.0\\.0$/,\n  /^\\[::1\\]$/,\n  /^\\[fe80:/,\n  /^\\[fc00:/,\n  /^\\[fd00:/,\n];\n\nfunction isBlockedHostname(hostname) {\n  if (!hostname) return true;\n  return BLOCKED_HOSTNAME_PATTERNS.some((pattern) => pattern.test(hostname));\n}\n\nfunction sanitizeText(raw, maxLength) {\n  if (typeof raw !== 'string') return '';\n  return raw.trim().slice(0, maxLength);\n}\n\nfunction sanitizeOfficialUrl(raw) {\n  if (typeof raw !== 'string' || raw.trim() === '') {\n    return { valid: false, url: '', reason: '公式URLが入力されていません' };\n  }\n  const trimmed = raw.trim().slice(0, 500);\n  const parsed = parseHttpUrl(trimmed);\n  if (!parsed) {\n    return { valid: false, url: '', reason: '公式URLはhttp(s)から始まる形式で入力してください' };\n  }\n  if (isBlockedHostname(parsed.hostname)) {\n    return { valid: false, url: '', reason: '公式URLに内部向け・ループバックアドレスは指定できません' };\n  }\n  return { valid: true, url: trimmed, reason: null };\n}\n\nfunction sanitizeResearchInput(raw) {\n  const company_name = sanitizeText(raw?.company_name, MAX_COMPANY_NAME_LENGTH);\n  const research_purpose = sanitizeText(raw?.research_purpose, MAX_RESEARCH_PURPOSE_LENGTH);\n  const urlResult = sanitizeOfficialUrl(raw?.official_url);\n\n  const errors = [];\n  if (!company_name) errors.push('会社名が入力されていません');\n  if (!urlResult.valid) errors.push(urlResult.reason);\n\n  return {\n    valid: errors.length === 0,\n    error_message: errors.length > 0 ? errors.join(' / ') : null,\n    input: {\n      company_name,\n      official_url: urlResult.url,\n      research_purpose,\n    },\n  };\n}\n\nconst body = $json.body || {};\nconst result = sanitizeResearchInput(body);\n\nreturn [{\n  json: {\n    company_name: result.input.company_name,\n    official_url: result.input.official_url,\n    research_purpose: result.input.research_purpose,\n    _source: 'webhook',\n    _input_error: result.valid ? '' : result.error_message,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "f1a2b3c4-0003-4abc-8def-000000000003",
+      "name": "Input Ready",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        320,
+        120
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "f1a2b3c4-0004-4abc-8def-000000000004",
+      "name": "Is Input Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1c1c1c1-0000-4000-8000-000000000001",
+              "leftValue": "={{ $('Input Ready').first().json._input_error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f1a2b3c4-0005-4abc-8def-000000000005",
+      "name": "Build Input Error Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 入力が不正な場合、既存のNormalize出力と同じ形（input/search/extract/sources/warnings/\n// generated_at）のオブジェクトを組み立てる。architected: 呼び出し元（バックエンド／n8n画面）は\n// この形さえ見れば、Tavilyを呼び出した場合と同じ方法で結果を扱える。架空の情報では補わない。\n\nconst input = $('Input Ready').first().json;\n\nreturn [{\n  json: {\n    input: {\n      company_name: input.company_name,\n      official_url: input.official_url,\n      research_purpose: input.research_purpose,\n    },\n    search: null,\n    extract: null,\n    sources: [],\n    warnings: ['入力エラー: ' + input._input_error],\n    generated_at: new Date().toISOString(),\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "f1a2b3c4-0006-4abc-8def-000000000006",
+      "name": "Result Ready",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "f1a2b3c4-0007-4abc-8def-000000000007",
+      "name": "Is Webhook Request",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1c1c1c1-0000-4000-8000-000000000002",
+              "leftValue": "={{ $('Input Ready').first().json._source }}",
+              "rightValue": "webhook",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f1a2b3c4-0008-4abc-8def-000000000008",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1760,
+        -80
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
       }
     }
   ],
@@ -137,12 +296,7 @@
       "main": [
         [
           {
-            "node": "Tavily Search",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Tavily Extract",
+            "node": "Input Ready",
             "type": "main",
             "index": 0
           }
@@ -180,6 +334,107 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sanitize Webhook Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize Webhook Input": {
+      "main": [
+        [
+          {
+            "node": "Input Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Ready": {
+      "main": [
+        [
+          {
+            "node": "Is Input Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Input Valid": {
+      "main": [
+        [
+          {
+            "node": "Tavily Search",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tavily Extract",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Input Error Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize, Dedupe & Structure Output": {
+      "main": [
+        [
+          {
+            "node": "Result Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Input Error Result": {
+      "main": [
+        [
+          {
+            "node": "Result Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result Ready": {
+      "main": [
+        [
+          {
+            "node": "Is Webhook Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Webhook Request": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },

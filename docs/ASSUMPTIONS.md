@@ -165,6 +165,29 @@ Phase 1以降で認識齟齬があれば修正する。
     設定する仕様）は許容し、追加修正は行わない。これによりPhase 3の受入条件
     （docs/REQUIREMENTS.md）を実データで満たすことを確認できた。
 
+21. **デモUIの対象ブランチとWebhook分岐設計（応募用デモUI）**
+    Mission（案件獲得優先、OpenAI連携なし）に基づき、未マージのPhase 4（feature/phase4-openai-analysis、
+    PR #8）ではなく、`origin/main`（Phase 3まで、OpenAI無し）を対象にデモUI用のfeatureブランチ
+    （`feature/demo-ui`）を作成した。PR #8・feature/phase4-openai-analysisブランチは一切変更していない。
+
+    Manual TriggerとWebhook Triggerを1つのworkflowに共存させるにあたり、両者の入力を
+    `Input Ready`（NoOp）ノードへ合流させ、`Normalize, Dedupe & Structure Output`の参照先を
+    `$('Fixed Test Input')`から`$('Input Ready')`へ変更した。Webhook経由かどうかは`_source`
+    フィールドで判定し、`Is Webhook Request`（IF）で分岐させて`Respond to Webhook`は
+    Webhook経路のみに接続した（Manual経路には接続しない）。この設計を使い捨てコンテナで実機検証し、
+    Manual実行が`Respond to Webhook`を経由せず`status: success`で正常終了すること、
+    Webhook実行（不正input／Tavily未Credentialでの実失敗の両方）が期待通りのJSONを
+    返すことを確認した（実際のTavily API呼び出しは行っていない）。
+
+    入力の安全な正規化は、バックエンド（`server/index.js`、主たる防御層。ここで拒否された
+    リクエストはn8nを一切呼び出さない）とn8n側の`Sanitize Webhook Input`（多層防御、
+    Webhookが直接叩かれた場合に備える）の二段階とした。両者は`src/sanitize_input.js`を
+    元に同一ロジックを維持し、`test/workflow-sync.test.js`で同期を検証している。
+
+    バックエンドはNode.js標準ライブラリのみで実装し（`fetch`はNode 18+のグローバルAPI）、
+    新規npm依存は追加していない。テスト容易性のため`createServer(options)`という
+    設定注入可能なファクトリ関数の形にした（`process.env`の直接参照は起動時の1箇所のみ）。
+
 ## 未解決事項（人間の判断が必要）
 
 - OpenAI Responses APIで使用する具体的なモデル名は未確定（Phase 4で決定）。
@@ -177,3 +200,8 @@ Phase 1以降で認識齟齬があれば修正する。
   変更時に一方だけ修正して`npm test`（`test/workflow-sync.test.js`）を実行し忘れると
   ズレたままコミットされ得る。同期漏れ自体は`npm test`で検出できるが、
   「テストを実行してからコミットする」運用自体は引き続き人間の注意に依存する。
+- デモUIの利用開始には、n8n画面での以下の人間操作が必要（`docs/DEMO_UI.md`参照）：
+  workflowの再import、`Webhook Trigger`へのHeader Auth Credential割り当て、
+  workflowの有効化（Active化）、`.env`への`N8N_WEBHOOK_SECRET`設定。
+- デモUIの外部公開（ホスティング・HTTPS・複数インスタンス時のレート制限共有ストア）は
+  今回のスコープ外。ローカル動作確認まで。
